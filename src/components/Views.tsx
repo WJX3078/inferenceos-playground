@@ -89,7 +89,7 @@ export function Queue({ engine, selected, select, cancel }: { engine: Simulation
     <div className="table-scroll"><table className="request-table"><thead><tr><th>REQUEST</th><th>PHASE</th><th>PROMPT</th><th>OUTPUT</th><th>KV</th><th /></tr></thead>
       <tbody>{requests.slice(-60).map(r => <tr key={r.id} className={selected === r.id ? 'selected-row' : ''}>
         <td><button className="request-link" onClick={() => select(r.id)}><span className={`dot ${r.status}`} />{r.id}</button></td>
-        <td><span className={`phase-label ${r.status}`} title={r.reason}>{r.status}</span></td>
+        <td><span className={`phase-label ${r.status}`} title={`${r.priority} · ${r.reason}`}>{r.recomputing && r.status === 'waiting' ? 'preempted' : r.recomputing && r.status === 'prefill' ? 'recompute' : r.status}</span></td>
         <td>{r.processed}<span className="muted">/{r.promptTokens}</span></td>
         <td>{r.generated}<span className="muted">/{r.outputTokens}</span></td>
         <td>{r.blockTable.length}</td><td>{(active(r) || r.status === 'waiting') && <button className="icon-button tiny" aria-label={`Cancel ${r.id}`} onClick={() => cancel(r.id)}><X size={12} /></button>}</td>
@@ -149,7 +149,7 @@ export function Timeline({ engine, select }: { engine: SimulationEngine; select:
       <button className="request-link" onClick={() => select(r.id)}>{r.id}<span className="muted">G{r.group}</span></button>
       <div className="timeline-track">
         {r.admittedAt !== undefined && r.admittedAt > start && <span className="timeline-span waiting" style={{ left: `${position(r.arrivedAt)}%`, width: `${position(r.admittedAt) - position(r.arrivedAt)}%` }} title={`${r.id} queue: ${r.admittedAt - r.arrivedAt}ms`} />}
-        {r.spans.filter(s => s.end >= start).map((s, i) => <span key={i} className={`timeline-span ${s.phase}`} style={{ left: `${position(s.start)}%`, width: `${Math.max(0.3, position(s.end) - position(s.start))}%` }} title={`${r.id} ${s.phase}: ${s.end - s.start}ms`} />)}
+        {r.spans.filter(s => s.end >= start).map((s, i) => <span key={i} className={`timeline-span ${s.phase}`} style={{ left: `${position(s.start)}%`, width: `${Math.max(0.1, position(s.end) - position(s.start))}%` }} title={`${r.id} ${s.phase}: ${s.tokens ?? 0} tokens / iteration ${s.iteration ?? '—'} / ${s.end - s.start}ms`} />)}
         {r.firstTokenAt !== undefined && r.firstTokenAt >= start && <i className="first-token" style={{ left: `${position(r.firstTokenAt)}%` }} title={`First token at ${r.firstTokenAt}ms`} />}
       </div>
     </div>)}</div>
@@ -157,7 +157,7 @@ export function Timeline({ engine, select }: { engine: SimulationEngine; select:
   </section>;
 }
 
-export function Inspector({ request }: { request?: Request }) {
+export function Inspector({ request, expert = true }: { request?: Request; expert?: boolean }) {
   return <section className="inspector">
     <div className="section-heading"><h2><Terminal size={15} /> Sequence inspector</h2><span className="mono">{request?.id ?? '--'}</span></div>
     {request ? <>
@@ -166,8 +166,10 @@ export function Inspector({ request }: { request?: Request }) {
         <div><span>PREFIX FAMILY</span><b>{request.prefix}</b></div>
         <div><span>TTFT</span><b>{request.firstTokenAt === undefined ? '--' : `${request.firstTokenAt - request.arrivedAt} ms`}</b></div>
         <div><span>CACHED TOKENS</span><b>{request.cachedTokens}</b></div>
+        {expert && <><div><span>PRIORITY / PREEMPTIONS</span><b>{request.priority} / {request.preemptions}</b></div>
+        <div><span>RECOMPUTED TOKENS</span><b>{request.recomputedTokens}</b></div></>}
       </div>
-      <div className="token-progress"><div><span>Prefill</span><b>{request.processed} / {request.promptTokens}</b></div><div className="progress-track"><span className="prefill" style={{ width: `${request.processed / request.promptTokens * 100}%` }} /></div></div>
+      <div className="token-progress"><div><span>{request.recomputing ? 'Recompute context' : 'Prefill'}</span><b>{request.processed} / {request.recomputing ? request.recomputeUntil : request.promptTokens}</b></div><div className="progress-track"><span className="prefill" style={{ width: `${Math.min(100, request.processed / (request.recomputing ? request.recomputeUntil : request.promptTokens) * 100)}%` }} /></div></div>
       <div className="token-progress"><div><span>Decode</span><b>{request.generated} / {request.outputTokens}</b></div><div className="progress-track"><span className="decode" style={{ width: `${request.generated / request.outputTokens * 100}%` }} /></div></div>
       {request.speculative && <div className="spec-tokens"><span>DRAFT VERIFY</span>{Array.from({ length: request.speculative.drafted }, (_, i) => <span key={i} className={i < request.speculative!.accepted ? 'accepted' : 'rejected'} title={i < request.speculative!.accepted ? 'Accepted draft token' : 'Discarded draft suffix'}>{i < request.speculative!.accepted ? <Check size={13} /> : <X size={13} />}</span>)}<ArrowRight size={12} /><b>commit</b></div>}
       <div className="decision-reason"><span className={`dot ${request.status}`} />{request.reason}</div>

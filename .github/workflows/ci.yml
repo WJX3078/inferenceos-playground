@@ -2,8 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/**']
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -38,12 +39,13 @@ jobs:
       - name: Run browser tests
         run: npm run test:e2e
 
-      - name: Upload browser report on failure
-        if: failure()
+      - name: Upload browser evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
           path: |
             playwright-report/
             test-results/
+            artifacts/
           retention-days: 7

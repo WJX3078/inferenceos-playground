@@ -10,12 +10,19 @@ export class MetricsCollector {
   hits = 0;
   drafted = 0;
   accepted = 0;
+  admissions = 0;
+  queueMs = 0;
   private ttftSum = 0;
   private firstTokens = 0;
   private intervalSum = 0;
   private intervals = 0;
   private window: { at: number; tokens: number; completed: number }[] = [];
 
+  admit(r: Request, now: number) {
+    if (r.admittedAt === undefined) this.admissions++;
+    this.queueMs += now - r.waitingSince;
+    r.queueMs += now - r.waitingSince;
+  }
   emit(r: Request, count: number, now: number) {
     if (r.firstTokenAt === undefined) {
       r.firstTokenAt = now;

@@ -1,6 +1,6 @@
-# InferenceOS Playground
+# InferenceOS Playground v0.2
 
-A local, interactive LLM inference systems simulator. No API key, model download, GPU, backend, or cloud service is required.
+A local LLM serving experiment platform: freeze a workload, compare runtime strategies, and inspect why execution changed. All results are **SIMULATED**. No API key, GPU, backend, model download or cloud service is required.
 
 ![InferenceOS Playground runtime](docs/images/inferenceos-playground.png)
 
@@ -9,120 +9,113 @@ A local, interactive LLM inference systems simulator. No API key, model download
 Requires Node.js 22+ and npm.
 
 ```bash
-# After cloning the repository or extracting the release archive:
 cd inferenceos-playground
 npm ci
 npm run dev -- --port 5178
 ```
 
-Open http://127.0.0.1:5178. Vite selects the next available port if occupied.
+Open http://127.0.0.1:5178. To serve the production bundle: `npm run build` then `npm run preview -- --port 5179`.
 
 ## Verify
 
 ```bash
-npm test
-npm run build
 npx playwright install chromium
-npm run test:e2e
+npm run verify
 ```
 
-E2E tests launch or reuse port 5178 and exercise Chromium at widths 360 through 1920. Screenshots are generated in `artifacts/`. `npm run preview -- --port 5179` serves the production build.
+`verify` runs unit/stress tests, TypeScript + production build, then Chromium E2E. Individual commands: `npm test`, `npm run build`, `npm run test:e2e`. E2E launches or reuses port 5178 and saves screenshots in `artifacts/`. GitHub Actions runs on `main`, `feat/**`, pull requests and manual dispatch.
 
-GitHub Actions runs the simulation tests, production build, and Chromium suite for pushes to `main` and pull requests.
+## Workspaces
 
-## Publish To GitHub
+- **Runtime:** preserve the v0.1 queue, paged KV view, worker topology, timeline, live feature switches, request cancellation, traffic controls and trace export. Add token/chunk budgets, priority/aging, RECOMPUTE preemption, hash lookup inspection and TP stage timing.
+- **Compare:** Static → Continuous → +Prefix → +Spec. Generate one immutable workload with fixed arrival times, lengths, token identities, priorities and seed. Every run consumes that exact trace. Separate modes compare FCFS/Priority or TP1/2/4/8.
+- **Trace:** inspect recent execution spans, events, requests and telemetry. Expert mode exposes scheduler, prefix-chain and communication inspectors. Beginner mode uses the same engine with fewer controls.
 
-This directory is already initialized as a Git repository on `main`. Create an empty repository named `inferenceos-playground` at https://github.com/new, then run:
+Workload Builder supports uniform, burst, Poisson-like, prefix-heavy, long-context and mixed traffic; fixed/uniform/bimodal lengths; prefix reuse; long-context ratio; burstiness. Field edits take effect on **Generate workload**. The displayed fingerprint identifies the frozen trace; it is a checksum, not a cryptographic guarantee.
 
-```bash
-git remote add origin https://github.com/YOUR_USERNAME/inferenceos-playground.git
-git push -u origin main
-```
-
-Do not initialize the remote repository with another README, `.gitignore`, or license before the first push. The source ZIP contains the same committed files without local Git history.
-
-## Repository Layout
-
-```text
-inferenceos-playground/
-├── .github/workflows/ci.yml
-├── docs/images/
-├── e2e/
-├── src/
-│   ├── components/
-│   └── simulation/
-├── index.html
-├── package.json
-├── playwright.config.ts
-├── tsconfig.json
-└── vite.config.ts
-```
+Comparison includes a metric matrix, selectable baseline, percentage deltas, five shared-time-axis charts, deterministic **Explain Why**, and JSON/Markdown reports. A zero or missing baseline yields `Δ n/a`. JSON includes the entire workload, per-strategy configuration, received identities, metrics, deltas, time series, scheduler/cache/preemption/TP statistics and model assumptions.
 
 ## Architecture
 
-- `src/simulation/engine.ts`: seeded fixed-step engine, request lifecycle, per-replica admission/scheduling, chunked prefill, decode and speculative verification.
-- `src/simulation/cache.ts`: incremental physical page allocation, logical block tables, immutable prefix pages, reference counting and unpinned LRU eviction.
-- `src/simulation/metrics.ts`: lifetime latency/counters and rolling output/completion rates.
-- `src/simulation/types.ts`: request, worker, page, configuration and snapshot contracts.
-- `src/simulation/scenarios.ts`: seven predefined workloads.
-- `src/App.tsx`: simulation clock, traffic generation and operator actions.
-- `src/components/`: React views of live engine state. Canvas charts are generated from simulation samples, not canned data.
-- `src/simulation/engine.test.ts`, `e2e/`: invariant tests and real browser workflows.
+Simulation code has no React dependency. The original engine and cache allocator are extended, not replaced.
 
-The engine is independent of React and wall-clock time. `step()` advances 20 simulated milliseconds; seed 73 and identical action ordering produce identical results. There is one sequence per request, one KV pool per replica, and `GPU count / TP degree` independent replicas. TP ranks execute the same batch over conceptual model/KV shards.
+| File | Responsibility |
+| --- | --- |
+| `src/simulation/engine.ts` | Fixed 20 ms clock, admission, lifecycle, batch service, recompute and invariants |
+| `scheduler.ts` | Pure per-replica token allocation, decode-first rotation, chunk limits, effective priority |
+| `cache.ts` | Chained block hashes, exact identity checks, references, reservations, incremental pages and unpinned LRU |
+| `workload.ts` | Seeded generation, validation, deep freezing, trace fingerprint |
+| `comparison.ts` | Synchronized replay, per-strategy completion and metrics, fairness assertions |
+| `communication.ts` | Attention → AllReduce → MLP → AllReduce duration and stage integration |
+| `metrics.ts`, `report.ts` | Lifetime/window metrics, deterministic explanations and exports |
+| `types.ts`, `scenarios.ts` | Contracts and 15 mechanism-specific scenarios |
+| `src/components/` | Existing profiler views, CompareLab and focused inspectors |
 
-## Features And Controls
+Runtime displays at 25 Hz; comparison advances fixed simulation steps in batches and displays at 10 Hz. Hidden workspaces pause their clocks. Memoization avoids rebuilding frozen identity checksums and rerendering hidden Compare from Runtime updates.
 
-- Enter prompt/output token counts and a prefix family; add one request or a randomized burst of 1-64.
-- Stream traffic at 0.5-8 requests per simulated second. Burst/stream lengths vary by 0.5-1.5 times the input, bounded by engine limits.
-- Pause, resume, single-step, reset, and select 0.25x-4x playback. Speed changes wall-clock playback, not metric units.
-- Toggle continuous batching, prefix caching and speculation live.
-- Change GPU count, TP degree, block size, block count and maximum batch size, then **Apply & restart**. Hardware changes explicitly discard the current run. Scenario selection also resets the run.
-- Inspect requests from the queue, worker chips, or timeline. Cancel live requests. Click/hover physical pages to see owners, usage and reuse generation. A selected request follows its replica's cache.
-- Runtime and Trace tabs show scheduler decisions, latency, throughput, occupancy, prefix reuse and speculative acceptance. Export a JSON trace through the download icon.
-- On mobile, the sliders icon switches between the runtime and control plane.
+## Serving mechanisms and teaching simplifications
 
-## Simulation Assumptions
+**Scheduling:** each replica has a token budget and maximum sequence count. Decode/verification positions consume budget first; remaining positions go to bounded prefill chunks. Decode and prefill can coexist in one iteration. Small budgets rotate within each phase. Static mode drains a cohort; continuous mode admits at free batch boundaries. FCFS bypasses infeasible requests; Priority sorts admission by base priority plus one level per two seconds of accumulated waiting.
 
-This is a teaching model inspired by vLLM, **not vLLM itself or a performance predictor**.
+**Preemption:** Priority + preemption may evict lower-effective-priority requests only when doing so permits admission. Victims must have resided for 200 ms and may be preempted at most three times. Preemption waits for the replica batch boundary, releases KV ownership, preserves emitted output, and re-prefills prompt + generated context. There is no swap. Recomputed tokens and sequence service time are explicit costs.
 
-1. **Scheduling:** FCFS scan with feasible-request bypass and least-loaded replica placement; cache affinity breaks equal-load ties. Continuous mode admits into freed slots each iteration. Static mode waits until the replica's cohort drains. Existing requests are not preempted.
-2. **Memory:** admission conservatively reserves capacity for the entire declared prompt + output. Physical blocks are allocated incrementally. The invariant is pinned pages + unallocated reserved pages <= pool capacity. Oversized requests are rejected, queued requests wait, and unreferenced prefix pages are reclaimed as needed. Reservations are accounting, not allocated pages.
-3. **Prefix identity:** `chat`, `code` and `docs` represent identical prefix token content per family. Prefix length is at most 128 tokens and at most half the prompt, rounded down to whole blocks. Only full immutable prefix pages are shared; mutable tails are never shared. Cache locality is replica-local; LRU eviction may leave unreachable cached suffix pages until reclaimed.
-4. **Timing:** prefill processes `floor(32 * TP_efficiency / sqrt(batch_size))` tokens per sequence per tick. `TP_efficiency = TP / (1 + .18*(TP-1))`. Decode costs `(36 + prompt_tokens/128 + 2*batch_size) / sqrt(TP_efficiency)` ms per sequence, quantized to ticks. These are illustrative costs, not measured hardware timings.
-5. **Speculation:** draft up to four tokens, independently accept the next token with probability .76 until the first rejection, discard the remaining suffix, then emit a correction (or a bonus if all accepted). Cost is 1.65 times ordinary decode. Output is capped exactly at the requested length. Draft-model memory and extra verification KV are not modeled.
-6. **GPU utilization:** synthetic instantaneous occupancy from phase and batch fill, not CUDA telemetry. TP communication overhead affects simulated speed; ring animation indicates group activity, not individual network packets. Increasing TP reduces replica count and does not automatically increase the configured per-replica token capacity.
-7. **Clock:** fixed-step playback intentionally slows when a browser tab is throttled; it does not catch up with real time.
+**Memory:** conservative admission reserves the entire declared prompt + output capacity. Physical allocation remains incremental. Invariant: pinned pages + unallocated reserved pages ≤ capacity. Oversized contexts are rejected. Queue cap is 256. Prefix pages without owners remain available until LRU eviction.
+
+**Prefix cache:** `chat`, `code`, `docs` synthesize shared token identities for up to 128 tokens / half the prompt. Underneath, each full block hashes `(parent hash, token identities)`; exact content checks guard hash collisions. Lookup stops at the first miss. Only full immutable prompt pages are published; mutable tails never share. Explicit token identities can describe longer shared prefixes. Cache is local to each replica.
+
+**TP:** compute per replica is divided by TP degree. A synthetic 32-layer, width-4096 FP16 model adds two ring AllReduces per layer:
+
+```text
+verification factor = 1 + 0.65 × (mean decode positions per sequence − 1) / 4
+compute ms = [0.03 × prefill positions + decode cost × verification factor] / TP
+decode cost = 36 + context / 128 + 2 × decoding sequences
+activation bytes = scheduled positions × 4096 × 2 × 32
+bytes / collective / rank = 2 × (TP−1) / TP × activation bytes
+collective ms = bytes / (GB/s × 10⁶) + 2 × (TP−1) × 32 × latency µs / 1000
+```
+
+TP1 has no communication. PCIe defaults to illustrative 32 GB/s / 50 µs; NVLink to 300 GB/s / 5 µs; Custom is editable. Communication delays actual completion. Rank batches are synchronized; compute/communication stats sum replica service once, not once per rank. Collective volume sums transmitted bytes across ranks. There is no compute/communication overlap.
+
+**TP scaling** uses one replica in each run and the same KV token capacity, with 1/2/4/8 GPUs respectively. This varies hardware budget; it is not an equal-cost comparison. More ranks can be slower because communication grows.
+
+**Speculation:** verify up to four drafts plus one correction/bonus, bounded by available budget/output. Each draft position accepts with probability .76 using deterministic request/output-position randomness, separate from traffic generation. Rejected draft positions still cost budget. Draft model memory and temporary verification KV are omitted.
+
+The verification factor interpolates from 1× for one position (no drafts) to 1.65× for five. Communication prices the actual allocated positions. Decode context cost considers scheduled decoders only. Round-robin cursors advance by service decisions, independent of multi-tick batch duration.
+
+All timing constants and utilization values are synthetic educational assumptions. They do **not** predict H100/A100 performance. Single-seed deltas describe the model, with no statistical significance or isolated causal claim.
 
 ## Metrics
 
 | Metric | Definition |
 | --- | --- |
-| TTFT | Lifetime mean arrival-to-first-emitted-token time, including queue time |
-| TPOT | Sum of post-first-token elapsed time divided by post-first-token count; tokens emitted in one speculative burst have zero internal spacing |
-| tokens/sec | Output tokens emitted in the trailing one simulated second; startup uses elapsed time |
-| requests/sec | Completions in the same rolling window |
-| KV utilization | Pinned plus retained cached physical pages / all physical pages |
-| Prefix hit rate | Prefix-eligible admissions reusing at least one page / eligible lookups with caching enabled |
-| GPU utilization | Mean synthetic occupancy across GPU workers |
-| Active / waiting | Current prefill + decode / queued requests |
+| TTFT | Mean arrival-to-first-output time among requests that emitted, including queue delay |
+| TPOT | Post-first-output elapsed time / post-first-output token count; same-burst spacing is zero |
+| Runtime throughput | Output/completions in the trailing 1 s; startup uses elapsed time |
+| Compare throughput / Req/s | Lifetime output/completions divided by that strategy's own elapsed time from zero to drain |
+| Queue Time | Total initial + preemption waiting across admissions / distinct admitted requests |
+| GPU Util | Synthetic phase/batch occupancy averaged over time in Compare; no hardware telemetry |
+| KV Util | Occupied pages including retained prefix cache / physical pages; time average in Compare |
+| Prefix Hit | Lookups reusing at least one full page / eligible lookups with caching enabled |
+| Recompute service | Summed service duration for recomputing sequences; sequence-ms, not critical-path delay |
+| Compute / Communication | Integrated executed stage durations summed across replicas |
 
-Counters survive display-history pruning. TTFT includes a subsequently cancelled request if it already produced a first token. Completed, rejected and cancelled counters are separate.
+Counters survive display-history pruning. Cancelled requests that emitted still contribute to latency. Completed/rejected/cancelled are separate. Inspect rejected counts before interpreting comparisons. Charts share a common clock; finished strategies show idle after completion while their final summary stays fixed.
 
-## Two-Minute Demo
+## Three-minute demo
 
-1. **0:00-0:20:** Start on Continuous batching. Watch arrivals turn blue during prefill, then green during decode. Select a request and inspect its non-contiguous logical-to-physical mapping.
-2. **0:20-0:40:** Select Static batching. At 4x speed, observe idle slots while a long sequence holds its cohort. Toggle continuous batching on and watch queued requests fill those slots.
-3. **0:40-1:00:** Select Prefix-heavy workload. After the initial cold prefill, watch shared purple pages, prefix-hit events and later requests' lower TTFT.
-4. **1:00-1:20:** Select KV-cache pressure. Inspect waiting reasons, retained pages, eviction counters and page reuse generations. Add a burst.
-5. **1:20-1:40:** Select Tensor-parallel workload. All four ranks show identical request IDs; inspect the all-reduce ring. Changing TP to 2 and applying produces two replicas.
-6. **1:40-2:00:** Select Speculative decoding. Select a decoding request, pause, and single-step through draft acceptance/rejection. Open Trace, filter verification events, then export JSON.
+1. **0:00–0:40 · Static vs Continuous:** Compare → Generate workload → Run comparison. Inspect throughput and queue curves, change the baseline, click TTFT for trace-derived observations.
+2. **0:40–1:15 · Chunked Prefill:** Runtime → Chunked Prefill → Expert. Pause and step; inspect successive 512-token chunks mixed with decode in Scheduler Inspector.
+3. **1:15–1:45 · Prefix cache:** Shared system prompt scenario. Select a later request, click hash blocks; follow HITs until the unique suffix causes a MISS.
+4. **1:45–2:25 · TP scaling:** Compare → TP scaling. Run on NVLink, then Custom with low bandwidth/high latency. Inspect the compute/communication split and throughput.
+5. **2:25–3:00 · Preemption:** Runtime → Preemption pressure. At 400 ms a HIGH request arrives; observe PREEMPTED → RECOMPUTE → RUNNING, released pages and rebuilt token counts.
 
-## Limitations
+## Limits
 
-- No neural inference, tokenizer, actual token text, CUDA kernels, model weights, real attention math, or hardware benchmarking.
-- No CPU swapping, recompute preemption, distributed transport, beam search, chunk token-budget scheduling, or persistent sessions.
-- One shared browser-thread engine is sufficient for the bounded MVP workload, not a production load generator.
-- Queue cap 256; automatic traffic backs off at 128 waiting. Requests: 1-8192 prompt / 1-1024 output tokens; blocks: 16-512 per replica.
-- Display history retains 160 terminal requests, 100 scheduler events and 180 chart samples. Export includes those recent records plus lifetime counters, not an exhaustive replay log.
-- Tested in Chromium; other browser engines have not been certified.
+- No real model, tokenizer, attention math, CUDA, distributed transport, beam search, swap or persistent sessions.
+- Fixed 20 ms quantization; browser background throttling slows playback rather than changing simulation time.
+- Conservative reservations and batch-boundary admission/preemption are deliberate simplifications.
+- 1–8192 prompt / 1–1024 output tokens; 16–512 blocks per replica; 1–16 sequences; maximum 256 requests per experiment.
+- Comparison stops at 120 simulated seconds and labels incomplete runs **TIME LIMIT / partial results**.
+- Runtime keeps 160 terminal requests, 100 events, 180 chart samples, 240 replica iterations and 600 spans per request. Trace export is recent history + lifetime statistics. Comparison retains the full input workload and up to 1201 samples per strategy.
+- Runs on the browser main thread; ordinary bounded experiments are the target, not production-scale load generation.
+- Chromium is verified; other browser engines are not certified.

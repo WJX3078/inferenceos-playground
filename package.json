@@ -1,7 +1,7 @@
 {
   "name": "inferenceos-playground",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Interactive browser simulation of modern LLM inference scheduling, paged KV cache, tensor parallelism, and speculative decoding.",
   "type": "module",
   "engines": {
@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "check": "npm test && npm run build && npm run test:e2e"
+    "check": "npm run verify",
+    "verify": "npm test && npm run build && npm run test:e2e"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.0",

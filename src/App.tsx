@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Activity, ArrowRight, Box, Download, GitBranch, LayoutDashboard, Pause, Play, RotateCcw, SkipForward, SlidersHorizontal, Terminal } from 'lucide-react';
 import { Controls } from './components/Controls';
+import { CompareLab } from './components/CompareLab';
+import { SchedulerInspector } from './components/SchedulerInspector';
+import { PrefixInspector } from './components/PrefixInspector';
+import { TPInspector } from './components/TPInspector';
 import { Cache, Inspector, MetricsStrip, Queue, SchedulerLog, Telemetry, Timeline, Workers } from './components/Views';
 import { SimulationEngine } from './simulation/engine';
 import { createScenario, SCENARIOS } from './simulation/scenarios';
@@ -19,6 +23,8 @@ export default function App() {
   const [notice, setNotice] = useState('');
   const [generation, setGeneration] = useState(0);
   const [view, setView] = useState('runtime');
+  const [runtimeView, setRuntimeView] = useState('runtime');
+  const [expert, setExpert] = useState(true);
   const [controlsOpen, setControlsOpen] = useState(false);
   const arrivalCredit = useRef(0);
   const clockCredit = useRef(0);
@@ -38,7 +44,7 @@ export default function App() {
     refresh();
   };
   useEffect(() => {
-    if (!running) return;
+    if (!running || view === 'compare') return;
     const timer = window.setInterval(() => {
       clockCredit.current += 40 * speed;
       const ticks = Math.floor(clockCredit.current / 20);
@@ -46,7 +52,7 @@ export default function App() {
       if (ticks) advance(ticks);
     }, 40);
     return () => window.clearInterval(timer);
-  }, [engine, running, speed, traffic, rate, input]);
+  }, [engine, running, speed, traffic, rate, input, view]);
 
   function replace(next: SimulationEngine) {
     setEngine(next); setGeneration(n => n + 1); setSelected(next.requests[0]?.id ?? null);
@@ -54,13 +60,12 @@ export default function App() {
   }
   function chooseScenario(id: string) {
     const s = SCENARIOS.find(s => s.id === id)!;
-    setScenario(id); setInput({ ...s.input }); setRate(s.rate); setTraffic(true);
+    setScenario(id); setInput({ ...s.input }); setRate(s.rate); setTraffic(!s.lesson);
+    if (id === 'compare') { setView('compare'); setControlsOpen(false); }
     replace(createScenario(id));
   }
   function apply(config: Config) {
-    const next = new SimulationEngine(config);
-    next.burst(SCENARIOS.find(s => s.id === scenario)!.count, input);
-    replace(next);
+    replace(createScenario(scenario, config, input));
   }
   function add(count: number) {
     const requests = count === 1 ? [engine.enqueue(input)] : engine.burst(count, input);
@@ -69,7 +74,7 @@ export default function App() {
     setSelected(requests[0].id); refresh();
   }
   function exportTrace() {
-    const blob = new Blob([JSON.stringify({ schemaVersion: 1, simulatedMs: engine.now, config: engine.config, metrics: engine.metrics, requests: engine.requests, events: engine.events, samples: engine.samples }, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ schemaVersion: 2, simulatedMs: engine.now, config: engine.config, metrics: engine.metrics, requests: engine.requests, events: engine.events, samples: engine.samples, schedulerStats: engine.schedulerStats, iterations: engine.iterations, tpStats: engine.tpStats, preemptionStats: engine.preemptionStats }, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url; a.download = 'inferenceos-trace.json'; a.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -78,11 +83,12 @@ export default function App() {
   const selectedRequest = engine.requests.find(r => r.id === selected);
   return <div className={`app-shell ${controlsOpen ? 'controls-open' : ''}`}>
     <header className="topbar">
-      <div className="brand"><div className="brand-icon"><Box size={23} /></div><div><h1>InferenceOS <span>Playground</span></h1><div className="brand-subtitle">LLM INFERENCE RUNTIME</div></div><span className="build-tag">v0.1</span></div>
-      <div className="topbar-right"><span className="simulation-badge"><i className="live-dot" /> SIMULATED</span><button className="icon-button mobile-controls" title="Control plane" aria-label="Toggle control plane" aria-pressed={controlsOpen} onClick={() => { setControlsOpen(!controlsOpen); window.scrollTo(0, 0); }}><SlidersHorizontal size={17} /></button><button className="icon-button" onClick={exportTrace} title="Export recent trace and lifetime metrics" aria-label="Export trace"><Download size={17} /></button></div>
+      <div className="brand"><div className="brand-icon"><Box size={23} /></div><div><h1>InferenceOS <span>Playground</span></h1><div className="brand-subtitle">LLM INFERENCE RUNTIME</div></div><span className="build-tag">v0.2</span></div>
+      <div className="topbar-right"><span className="simulation-badge"><i className="live-dot" /> SIMULATED</span>{view !== 'compare' && <button className="icon-button mobile-controls" title="Control plane" aria-label="Toggle control plane" aria-pressed={controlsOpen} onClick={() => { setControlsOpen(!controlsOpen); window.scrollTo(0, 0); }}><SlidersHorizontal size={17} /></button>}<button className="icon-button" onClick={exportTrace} title="Export recent trace and lifetime metrics" aria-label="Export trace"><Download size={17} /></button></div>
     </header>
     <div className="workspace-bar">
-      <nav aria-label="Workspace views"><button className={view === 'runtime' ? 'active-tab' : ''} onClick={() => setView('runtime')}><LayoutDashboard size={14} /> Runtime</button><button className={view === 'trace' ? 'active-tab' : ''} onClick={() => setView('trace')}><Terminal size={14} /> Trace</button></nav>
+      <nav aria-label="Workspace views"><button className={view === 'runtime' ? 'active-tab' : ''} onClick={() => { setView('runtime'); setRuntimeView('runtime'); }}><LayoutDashboard size={14} /> Runtime</button><button className={view === 'compare' ? 'active-tab' : ''} onClick={() => { setView('compare'); setControlsOpen(false); }}><GitBranch size={14} /> Compare</button><button className={view === 'trace' ? 'active-tab' : ''} onClick={() => { setView('trace'); setRuntimeView('trace'); }}><Terminal size={14} /> Trace</button></nav>
+      {view !== 'compare' && <>
       <div className="scenario-select"><GitBranch size={14} /><select aria-label="Scenario" value={scenario} onChange={e => chooseScenario(e.target.value)}>{SCENARIOS.map(s => <option value={s.id} key={s.id}>{s.name}</option>)}</select></div>
       <div className="playback"><span className={`run-state ${running ? 'green' : 'muted'}`}><i className={running ? 'live-dot' : 'paused-dot'} />{running ? 'Running' : 'Paused'}</span><time className="sim-time" data-testid="sim-time">{(engine.now / 1000).toFixed(2)} s</time>
         <div className="playback-buttons"><button className="icon-button" title={running ? 'Pause simulation' : 'Resume simulation'} aria-label={running ? 'Pause simulation' : 'Resume simulation'} onClick={() => setRunning(!running)}>{running ? <Pause size={15} /> : <Play size={15} />}</button>
@@ -90,14 +96,19 @@ export default function App() {
           <button className="icon-button" title="Reset current configuration" aria-label="Reset simulation" onClick={() => apply(engine.config)}><RotateCcw size={14} /></button></div>
         <select aria-label="Simulation speed" className="speed-select" value={speed} onChange={e => setSpeed(Number(e.target.value))}>{[0.25, 0.5, 1, 2, 4].map(s => <option key={s} value={s}>{s}x</option>)}</select>
       </div>
+      </>}
+      <div className="mode-switch segmented" aria-label="Experience mode"><button className={!expert ? 'selected' : ''} aria-pressed={!expert} onClick={() => setExpert(false)}>Beginner</button><button className={expert ? 'selected' : ''} aria-pressed={expert} onClick={() => setExpert(true)}>Expert</button></div>
     </div>
-    <div className="workspace">
-      <Controls key={generation} config={engine.config} input={input} setInput={setInput} add={add} notice={notice} apply={apply}
+    <CompareLab visible={view === 'compare'} expert={expert} />
+    <div className="workspace" hidden={view === 'compare'}>
+      <Controls key={generation} expert={expert} config={engine.config} input={input} setInput={setInput} add={add} notice={notice} apply={apply}
         feature={key => { engine.setFeatures({ [key]: !engine.config[key] }); refresh(); }}
         traffic={traffic} setTraffic={setTraffic} rate={rate} setRate={setRate} />
       <main>
         <MetricsStrip engine={engine} />
-        <div className="runtime-heading"><div><Activity size={15} /><h2>{view === 'runtime' ? 'Runtime overview' : 'Execution trace'}</h2><span className="subtle">iteration {engine.now / 20}</span></div><span className="subtle mono">{engine.config.continuousBatching ? 'CONTINUOUS' : 'STATIC'} / FCFS</span></div>
+        <div className="runtime-heading"><div><Activity size={15} /><h2>{runtimeView === 'runtime' ? 'Runtime overview' : 'Execution trace'}</h2><span className="subtle">tick {engine.now / 20}</span></div><span className="subtle mono">{engine.config.continuousBatching ? 'CONTINUOUS' : 'STATIC'} / {engine.config.schedulerPolicy.toUpperCase()}</span></div>
+        {SCENARIOS.find(s => s.id === scenario)?.lesson && <p className="scenario-lesson">{SCENARIOS.find(s => s.id === scenario)?.lesson}</p>}
+        {!expert && <div className="beginner-guide"><div><b>Request</b><span>A prompt arrives, waits for a slot, then produces output.</span></div><div><b>Prefill → Decode</b><span>Prefill reads the prompt. Decode generates the answer incrementally.</span></div><div><b>KV & prefix cache</b><span>KV stores attention context. Identical full prefix blocks can reuse prior work.</span></div><div><b>Continuous batching</b><span>Admit the next request when a slot opens, without waiting for the whole cohort.</span></div></div>}
         <div className="pipeline">
           <div><i className="dot waiting" /><span>Queued</span><b>{m.waiting}</b></div><ArrowRight size={13} />
           <div><i className="dot prefill" /><span>Prefill</span><b>{engine.requests.filter(r => r.status === 'prefill').length}</b></div><ArrowRight size={13} />
@@ -105,12 +116,15 @@ export default function App() {
           <div><i className="dot completed" /><span>Completed</span><b>{m.completed}</b></div>
           <span className="pipeline-rejected">{m.rejected} rejected / {m.cancelled} cancelled</span>
         </div>
-        {view === 'runtime' ? <>
+        {runtimeView === 'runtime' ? <>
           <div className="runtime-grid"><div className="left-column"><Workers engine={engine} select={setSelected} /><Queue engine={engine} selected={selected} select={setSelected} cancel={id => { engine.cancel(id); refresh(); }} /></div>
             <Cache engine={engine} selected={selected} select={setSelected} /></div>
-          <div className="bottom-grid"><Timeline engine={engine} select={setSelected} /><Inspector request={selectedRequest} /></div>
+          <div className="bottom-grid"><Timeline engine={engine} select={setSelected} /><Inspector request={selectedRequest} expert={expert} /></div>
           <div className="bottom-grid"><SchedulerLog engine={engine} /><Telemetry engine={engine} /></div>
-        </> : <div className="trace-view"><Timeline engine={engine} select={setSelected} /><div className="bottom-grid"><SchedulerLog engine={engine} /><Inspector request={selectedRequest} /></div><Telemetry engine={engine} /></div>}
+        </> : <div className="trace-view"><Timeline engine={engine} select={setSelected} /><div className="bottom-grid"><SchedulerLog engine={engine} /><Inspector request={selectedRequest} expert={expert} /></div><Telemetry engine={engine} /></div>}
+        {expert && <><SchedulerInspector key={generation} engine={engine} />
+        <PrefixInspector key={`${generation}:${selectedRequest?.id}`} request={selectedRequest} blockSize={engine.config.blockSize} />
+        <TPInspector engine={engine} /></>}
         <footer className="statusbar"><span><i className="live-dot" /> ENGINE CONNECTED</span><span>20 ms step</span><span>Seed 73</span><span>In-memory / no model weights</span><span className="statusbar-right">vLLM-inspired execution model</span></footer>
       </main>
     </div>
