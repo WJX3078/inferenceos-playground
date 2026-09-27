@@ -96,23 +96,54 @@ export class KVCacheManager {
 
   /** GPU match with multi-tier fallback. `tier` names where ALL missing blocks live. */
   lookupWithTiers(r: Request): { ids: number[]; missingHashes: string[]; tier: 'cpu' | 'remote' | null } {
-    const ids: number[] = [];
-    if (!r.prefixTokens) return { ids, missingHashes: [], tier: null };
+    const plan = this.buildReusePlan(r);
+    return {
+      ids: plan.blocks.filter(b => b.source === 'gpu').map(b => b.id!),
+      missingHashes: plan.blocks.filter(b => b.source !== 'gpu').map(b => b.hash),
+      tier: plan.tiers,
+    };
+  }
+
+  /**
+   * Block-granular reuse plan over the tier hierarchy.
+   *
+   * Walks the content-hash chain block by block. Each block of the contiguous
+   * prefix resolves to the fastest tier holding it (GPU -> CPU -> Remote); the
+   * FIRST block found nowhere marks the end of reusable content — that block
+   * and every block after it must be recomputed (a prefix cannot skip holes).
+   * `plan.tiers` names the deepest tier involved ('cpu' | 'remote') when at
+   * least one block needs a restore, else null.
+   */
+  buildReusePlan(r: Request): {
+    blocks: { hash: string; source: 'gpu' | 'cpu' | 'remote' | 'recompute'; id?: number }[];
+    tiers: 'cpu' | 'remote' | null;
+  } {
+    const blocks: { hash: string; source: 'gpu' | 'cpu' | 'remote' | 'recompute'; id?: number }[] = [];
+    let tiers: 'cpu' | 'remote' | null = null;
+    if (!r.prefixTokens) return { blocks, tiers };
     const total = Math.floor(r.prefixTokens / this.blockSize);
-    const hashes: string[] = [];
-    for (let i = 0; i < total; i++) hashes.push(blockHash(r, i, this.blockSize));
-    let split = 0;
-    while (split < total) {
-      const id = this.byHash.get(hashes[split]);
-      if (id === undefined) break;
-      ids.push(id);
-      split++;
+    for (let i = 0; i < total; i++) {
+      const hash = blockHash(r, i, this.blockSize);
+      const id = this.byHash.get(hash);
+      if (id !== undefined) {
+        blocks.push({ hash, source: 'gpu', id });
+        continue;
+      }
+      if (this.tierMode !== 'gpu' && this.cpu.has(hash)) {
+        blocks.push({ hash, source: 'cpu' });
+        tiers = tiers === 'remote' ? 'remote' : 'cpu';
+        continue;
+      }
+      if (this.tierMode === 'gpu-cpu-remote' && this.remote.has(hash)) {
+        blocks.push({ hash, source: 'remote' });
+        tiers = 'remote';
+        continue;
+      }
+      // First content miss: nothing after this block is reusable.
+      for (let j = i; j < total; j++) blocks.push({ hash: blockHash(r, j, this.blockSize), source: 'recompute' });
+      break;
     }
-    if (split === total) return { ids, missingHashes: [], tier: null };
-    const missing = hashes.slice(split);
-    if (this.tierMode !== 'gpu' && missing.every(h => this.cpu.has(h))) return { ids, missingHashes: missing, tier: 'cpu' };
-    if (this.tierMode === 'gpu-cpu-remote' && missing.every(h => this.remote.has(h))) return { ids, missingHashes: missing, tier: 'remote' };
-    return { ids, missingHashes: missing, tier: null };
+    return { blocks, tiers };
   }
 
   attach(r: Request, ids: number[], now: number) {

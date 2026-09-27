@@ -39,6 +39,11 @@ waiting → prefill → transfer_wait → transferring → decode_wait → decod
 | P/D ratio mismatch | n/a | Prefill-poor ⇒ TTFT blowup; decode-poor ⇒ transfer staging backlog and TPOT pressure |
 | Failure mode | ITL spikes during prefill | Queued transfers, backed-up prefill KV, idle decode GPUs |
 
+## Transfer scheduling & backpressure
+
+- `transferSchedulingPolicy` picks how concurrent transfers share the pipe: **fair-share** (equal split, FIFO start — the default), **fifo** (strict head-of-line service: the first transfer takes the whole pipe, others wait), **priority** (high-priority requests start first, then share equally). Metrics: `transferWaitP50/P99`, `networkUtilization` (pipe busy fraction), `networkBytes`.
+- `maxPendingDecodeRequests` (0 = off) is the **backpressure** knob: when `transfer_wait + transferring + decode_wait` reaches the cap, prefill admission pauses (event `backpressure`, counters `backpressureEvents/backpressureTicks`) instead of producing un-transferable KV and wasting prefill compute. See the `decode-bottleneck-backpressure` scenario and compare with the limit disabled.
+
 ## Metrics
 
 Per-request observations decompose the lifecycle: `prefillQueueLatency`, `prefillLatency`, `kvTransferQueueLatency` (prefill-done → transfer start: staging wait + queue), `kvTransferLatency` (in-flight), `decodeQueueLatency` (arrival on decode pool → decode admission). System metrics: prefill/decode GPU utilization separately, transfers done/active/queued, network bytes moved.

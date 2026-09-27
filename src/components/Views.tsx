@@ -94,8 +94,10 @@ export function MetricsStrip({ engine }: { engine: SimulationEngine }) {
       <span>recomputed <b>{fmt(m.recomputedTokens)}</b> tok</span>
       <span>spec accept <b>{m.drafted ? `${Math.round(m.accepted / m.drafted * 100)}%` : '--'}</b></span>
       {engine.config.servingMode === 'disaggregated' && <span>transfers <b>{m.transfersCompleted}</b> done / <b>{m.transfersActive}</b> active / <b>{m.transfersQueued}</b> queued · {(m.networkBytes / 1048576).toFixed(0)} MiB</span>}
-      {engine.config.kvTiers !== 'gpu' && <span>tiers <b>{m.tierHitsGpu}</b>/<b>{m.tierHitsCpu}</b>/<b>{m.tierHitsRemote}</b> · restores <b>{m.restores}</b> · recompute <b>{m.tierRecomputes}</b></span>}
+      {engine.config.kvTiers !== 'gpu' && <span>tier blocks <b>{m.gpuHitBlocks}</b>gpu/<b>{m.cpuHitBlocks}</b>cpu/<b>{m.remoteHitBlocks}</b>remote/<b>{m.recomputeBlocks}</b>recomp · restores <b>{m.restores}</b></span>}
       <span>preempted <b>{m.preempted}</b></span>
+      <span>starvation <b>{m.starvationEvents}</b></span>
+      {engine.config.servingMode === 'disaggregated' && engine.config.maxPendingDecodeRequests > 0 && <span>backpressure <b>{m.backpressureEvents}</b> / {m.backpressureTicks} ticks</span>}
     </div>
   </>;
 }
@@ -256,7 +258,9 @@ export function Inspector({ request, config }: { request?: Request; config: Conf
       {request.transfer && <div className="transfer-detail"><span>KV TRANSFER</span><b>#{request.transfer.id}</b><span>{(request.transfer.bytes / 1048576).toFixed(1)} MiB</span>
         <span>queued {request.transfer.queuedAt}ms</span>{request.transfer.startedAt !== undefined && <span>started {request.transfer.startedAt}ms</span>}{request.transfer.finishedAt !== undefined && <span>done {request.transfer.finishedAt}ms</span>}</div>}
       {request.speculative && <div className="spec-tokens"><span>DRAFT VERIFY</span>{Array.from({ length: request.speculative.drafted }, (_, i) => <span key={i} className={i < request.speculative!.accepted ? 'accepted' : 'rejected'} title={i < request.speculative!.accepted ? 'Accepted draft token' : 'Discarded draft suffix'}>{i < request.speculative!.accepted ? <Check size={13} /> : <X size={13} />}</span>)}<ArrowRight size={12} /><b>commit</b></div>}
-      <div className="decision-reason"><span className={`dot ${request.status}`} />{request.reason}{config.preemptionMode === 'recompute' && request.preemptions > 0 ? ' · will recompute on resume' : ''}</div>
+      {request.observed && <div className="observed-detail"><span>OBSERVED (real trace — reference only, not a prediction)</span>
+        <span>ttft {request.observed.ttftMs ?? '--'} ms · tpot {request.observed.tpotMs ?? '--'} ms · e2e {request.observed.e2eMs ?? '--'} ms</span></div>}
+      <div className="decision-reason"><span className={`dot ${request.status}`} />{request.reason}{request.preemptions > 0 ? ' · recomputed on resume' : ''}</div>
     </> : <div className="empty-state">No selected sequence</div>}
   </section>;
 }

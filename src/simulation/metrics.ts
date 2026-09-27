@@ -29,6 +29,7 @@ export interface RequestObservation {
   meetsTTFTSLO: boolean | null;  // null for non-completed requests
   meetsTPOTSLO: boolean | null;
   meetsSLO: boolean | null;
+  observed: { ttftMs?: number; tpotMs?: number; e2eMs?: number } | null; // real-trace reference, display only
 }
 
 /** Nearest-rank percentile: smallest value with cumulative rank >= ceil(p/100 * n). */
@@ -40,6 +41,14 @@ export function percentile(sorted: number[], p: number): number | null {
 
 const ACCEPTANCE = { low: 0.25, medium: 0.7, high: 0.92 } as const;
 
+export interface PercentileBundle {
+  ttftP50: number | null; ttftP90: number | null; ttftP95: number | null; ttftP99: number | null;
+  tpotP50: number | null; tpotP90: number | null; tpotP95: number | null; tpotP99: number | null;
+  e2eP50: number | null; e2eP95: number | null; e2eP99: number | null;
+  maxQueueWait: number | null;
+  transferWaitP50: number | null; transferWaitP99: number | null;
+}
+
 export class MetricsCollector {
   completed = 0;
   rejected = 0;
@@ -48,10 +57,17 @@ export class MetricsCollector {
   cachedTokens = 0;
   lookups = 0;
   hits = 0;
-  tierHitsGpu = 0;
-  tierHitsCpu = 0;
-  tierHitsRemote = 0;
-  tierRecomputes = 0;
+  // Block-granular tier accounting (one unit per prefix block).
+  gpuHitBlocks = 0;
+  cpuHitBlocks = 0;
+  remoteHitBlocks = 0;
+  recomputeBlocks = 0;
+  restoreBytes = 0;
+  // Starvation protection.
+  starvationEvents = 0;
+  // P/D backpressure.
+  backpressureEvents = 0;
+  backpressureTicks = 0;
   drafted = 0;
   accepted = 0;
   preemptions = 0;
@@ -62,10 +78,7 @@ export class MetricsCollector {
   private intervals = 0;
   private window: { at: number; tokens: number; completed: number; good: number }[] = [];
   observations: RequestObservation[] = [];
-  // Memoized percentiles, recomputed only when a new observation lands.
-  private percentileCache: { key: string; value: Pick<import('./types.ts').Metrics,
-    'ttftP50' | 'ttftP90' | 'ttftP95' | 'ttftP99' | 'tpotP50' | 'tpotP90' | 'tpotP95' | 'tpotP99' |
-    'e2eP50' | 'e2eP95' | 'e2eP99'> } | null = null;
+  private percentileCache: { key: string; value: PercentileBundle } | null = null;
 
   static acceptanceProbability(profile: keyof typeof ACCEPTANCE) {
     return ACCEPTANCE[profile] ?? ACCEPTANCE.medium;
@@ -102,7 +115,6 @@ export class MetricsCollector {
     const meetsTTFT = status === 'completed' ? ttft !== null && ttft <= r.sloTTFT : null;
     const meetsTPOT = status === 'completed' ? tpot !== null && tpot <= r.sloTPOT : null;
     // The full kv_transfer_wait phase: prefill completion -> transfer start.
-    // Covers both decode-pool staging waits and the transfer queue itself.
     const transferStart = r.transfer?.startedAt ?? r.transfer?.finishedAt;
     const transferQueue = r.transfer && transferStart !== undefined && r.prefillDoneAt !== undefined
       ? transferStart - r.prefillDoneAt : null;
@@ -134,22 +146,28 @@ export class MetricsCollector {
       meetsTTFTSLO: meetsTTFT,
       meetsTPOTSLO: meetsTPOT,
       meetsSLO: status === 'completed' ? meetsTTFT === true && meetsTPOT === true : null,
+      observed: r.observed ?? null,
     });
     if (this.observations.length > 4000) this.observations.splice(0, this.observations.length - 4000);
     this.percentileCache = null;
   }
 
-  private percentiles() {
+  private percentiles(): PercentileBundle {
     const key = `${this.observations.length}`;
     if (this.percentileCache && this.percentileCache.key === key) return this.percentileCache.value;
     const completed = this.observations.filter(o => o.status === 'completed');
     const ttfts = this.observations.filter(o => o.ttft !== null).map(o => o.ttft!).sort((a, b) => a - b);
     const tpots = this.observations.filter(o => o.tpot !== null).map(o => o.tpot!).sort((a, b) => a - b);
     const e2es = completed.map(o => o.e2e).sort((a, b) => a - b);
-    const value = {
+    const queues = this.observations.map(o => o.queueLatency);
+    const waits = this.observations.filter(o => o.kvTransferQueueLatency !== null)
+      .map(o => o.kvTransferQueueLatency!).sort((a, b) => a - b);
+    const value: PercentileBundle = {
       ttftP50: percentile(ttfts, 50), ttftP90: percentile(ttfts, 90), ttftP95: percentile(ttfts, 95), ttftP99: percentile(ttfts, 99),
       tpotP50: percentile(tpots, 50), tpotP90: percentile(tpots, 90), tpotP95: percentile(tpots, 95), tpotP99: percentile(tpots, 99),
       e2eP50: percentile(e2es, 50), e2eP95: percentile(e2es, 95), e2eP99: percentile(e2es, 99),
+      maxQueueWait: queues.length ? Math.max(...queues) : null,
+      transferWaitP50: percentile(waits, 50), transferWaitP99: percentile(waits, 99),
     };
     this.percentileCache = { key, value };
     return value;
@@ -178,8 +196,11 @@ export class MetricsCollector {
       outputTokens: this.outputTokens, cachedTokens: this.cachedTokens,
       drafted: this.drafted, accepted: this.accepted,
       preemptions: this.preemptions, recomputedTokens: this.recomputedTokens,
-      tierHitsGpu: this.tierHitsGpu, tierHitsCpu: this.tierHitsCpu,
-      tierHitsRemote: this.tierHitsRemote, tierRecomputes: this.tierRecomputes,
+      starvationEvents: this.starvationEvents,
+      backpressureEvents: this.backpressureEvents, backpressureTicks: this.backpressureTicks,
+      gpuHitBlocks: this.gpuHitBlocks, cpuHitBlocks: this.cpuHitBlocks,
+      remoteHitBlocks: this.remoteHitBlocks, recomputeBlocks: this.recomputeBlocks,
+      restoreBytes: this.restoreBytes,
     };
   }
 }

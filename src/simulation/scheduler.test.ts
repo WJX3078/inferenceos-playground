@@ -14,7 +14,8 @@ const mk = (over: Partial<Request>): Request => ({
   arrivedAt: 0, priority: 'normal', sloTTFT: 500, sloTPOT: 50, tokenSeed: 1,
   group: null, prefillGroup: null, decodeGroup: null, processed: 0, generated: 0,
   cachedTokens: 0, prefixTokens: 0, blockTable: [], compute: 0, reason: '', spans: [],
-  preemptions: 0, recomputedTokens: 0, transfer: null, restore: null, tierHit: null,
+  preemptions: 0, recomputedTokens: 0, transfer: null, pendingRestoreCount: 0, tierHit: null,
+  starvedSince: null, observed: undefined,
   resumeTarget: null, speculative: null,
   ...over,
 });

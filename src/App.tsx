@@ -6,6 +6,7 @@ import { SimulationEngine } from './simulation/engine';
 import { createScenario, SCENARIOS } from './simulation/scenarios';
 import type { Config, RequestInput } from './simulation/types';
 import type { TrafficSpec } from './simulation/workload';
+import { parseTrace, traceToScenario } from './simulation/trace';
 
 const SCENARIO_GROUPS = Array.from(new Set(SCENARIOS.map(s => s.group)));
 
@@ -100,14 +101,29 @@ export default function App() {
   function importScenario(file: File) {
     file.text().then(text => {
       try {
-        const parsed = JSON.parse(text) as { version: number; config?: Partial<Config>; traffic?: Partial<TrafficSpec>; seed?: number };
+        const trimmed = text.trim();
+        // Workload traces (JSONL lines or a JSON array) replay real request shapes.
+        const isTrace = file.name.endsWith('.jsonl') || trimmed.startsWith('[');
+        if (isTrace) {
+          const parsed = parseTrace(text);
+          const built = traceToScenario(parsed, { name: `trace:${file.name}` });
+          const next = new SimulationEngine(built.config ?? {}, built.seed ?? 73);
+          next.setTraffic(built.traffic ?? { enabled: false });
+          setScenario('imported-trace');
+          replace(next, true);
+          setNotice(`Imported trace: ${parsed.requests.length} requests`);
+          return;
+        }
+        const parsed = JSON.parse(trimmed) as { version: number; config?: Partial<Config>; traffic?: Partial<TrafficSpec>; seed?: number };
         if (parsed.version !== 1) { setNotice('Unsupported scenario version'); return; }
         const next = new SimulationEngine(parsed.config ?? {}, parsed.seed ?? 73);
         next.setTraffic(parsed.traffic ?? { enabled: false });
         setScenario('imported');
         replace(next, parsed.traffic?.enabled ?? false);
         setNotice(`Imported ${file.name}`);
-      } catch { setNotice('Invalid scenario JSON'); }
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message.split('\n')[0] : 'Invalid scenario JSON');
+      }
     });
   }
   function exportRun() {

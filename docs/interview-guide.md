@@ -306,6 +306,61 @@ D: The README claims audit removed all performance-percentage language not deriv
 F: Where's the line? — Ratios and mechanisms (measurable in-sim) vs absolute performance claims (forbidden).
 Wrong: "It looks like a monitoring dashboard, so the numbers read as real."
 
+## Part 3b — Interview risk audit: "isn't this fake?"
+
+Per mechanism: what is **simulated** (mechanism with real dynamics), what is **conceptual** (structure without dynamics), what is **measured** (nothing is), and what is **not modeled**. Memorize the table — it is the honest answer to every "isn't this just made up?" question.
+
+| Mechanism | Simulated (real dynamics) | Conceptual (structure only) | Not modeled |
+| --- | --- | --- | --- |
+| Token budget | budget-constrained scheduling, decode/prefill contention, deferrals | one iteration = one forward pass | kernel time, step-time vs batch curves |
+| Chunked prefill | multi-iteration prefill, budget interplay | — | per-chunk kernel efficiency |
+| Paged KV / block table | incremental allocation, sharing, refcounts, eviction | block = fixed token count | page-table memory cost, fragmentation bits |
+| Prefix cache | content-addressed sharing, LRU, hit-rate effects | — | real tokenizer, incremental prefill kernels |
+| Multi-tier KV | demote/restore pipeline, bandwidth sharing, per-block plans | tier = hash store + bytes | device buses, real PCIe/NVMe behavior |
+| Preemption | recompute bill, residency, cooldown, livelock avoidance | cost = recomputed tokens | swap-to-CPU path, host memory bandwidth |
+| Starvation aging | promotion, threshold events | hard priority bump | gradual weight aging, fairness proofs |
+| Speculative decoding | draft/verify accounting, acceptance economics | iid acceptance per token | draft model, tree drafts, correlated acceptance |
+| Tensor parallel | replica sharding, decode-duration scaling | ranks execute same batch | NCCL, all-reduce timing, memory per rank |
+| P/D disaggregation | queue movement, transfer queueing, backpressure | pool topology | RDMA fabric, topology, congestion |
+| KV transfer | byte payload, latency, sharing policies | equal-split / serial service | RDMA verbs, per-link contention |
+| SLO / goodput | per-request verdicts, attainment, goodput accounting | SLO = two thresholds | multi-dim SLOs, admission pricing |
+| GPU utilization | synthetic occupancy from phase + batch fill | — | any hardware telemetry |
+| Cost models (prefill/decode timing) | queueing effects, ordering effects | fixed 20 ms step, closed-form durations | measured hardware timings |
+
+Rule of thumb for the interview: **ratios and mechanisms** (interference, queue movement, attainment collapse) transfer to real systems; **absolute milliseconds** do not, and the docs never claim they do.
+
+### New hardening Q&As
+
+**43. What happens if you just "open preemption up" for everyone?**
+S: Livelock: two requests can swap places every iteration, each preempting the other.
+D: We hit exactly this during hardening — the admission pass admitted the just-evicted victim instead of the preemptor, producing an infinite swap. The fix is structural: retry the candidate immediately, exclude the fresh victim for that pass, then add cooldown + minimum residency so storms are rate-limited. The `priority-preemption-storm` scenario shows the guarded behavior; the regression lives in the scenario drain test.
+F: Why cooldown instead of only the structural fix? — Defense in depth: the fix removes the cycle; the cooldown bounds the rate under churn.
+Wrong: "Preemption is safe as long as priorities differ."
+
+**44. How does the multi-tier cache handle a prefix that's half in GPU, half in CPU?**
+S: Block-granular reuse plans: each prefix block resolves to the fastest tier holding it; the first block that exists nowhere ends the reusable run.
+D: `buildReusePlan` walks the chained hashes: `B0,B1 gpu / B2,B3 cpu / B4 remote / B5+ recompute`. Each tier with missing blocks schedules its own restore (own bandwidth/latency); the request waits until all restores land, then admits with a full GPU hit. A hole cannot be jumped — the chain hash makes any non-contiguous reuse impossible.
+F: Why wait for all restores instead of decoding on partial? — Partial KV isn't decodable; the prefix must be resident before prefill can resume from it.
+Wrong: "The cache fetches only the blocks it needs at decode time."
+
+**45. Why does prefill admission need backpressure in P/D serving?**
+S: Without it, a fast prefill pool keeps producing KV that queues on the transfer path while decode is the real bottleneck.
+D: `maxPendingDecodeRequests` caps the decode pipeline; at the cap, prefill admission pauses (backpressure events/ticks are counted). The mechanism converts wasted prefill compute + un-transferable KV occupancy into honest queueing at the front door — where admission control is supposed to happen.
+F: Count-based vs byte-based limits? — Count is simpler and pedagogically clear; byte-based shaping is a plausible v2.
+Wrong: "Backpressure means rejecting requests."
+
+**46. Why both single-seed and multi-seed experiments?**
+S: Single seed proves byte-identical reproducibility; multiple seeds quantify sensitivity and make A/B comparisons paired.
+D: The same seed list runs for every variant, so per-seed deltas are meaningful; aggregates report mean/median/min/max/stddev (population) for the tail metrics that matter. Fingerprints (config/workload/result hashes + engine/schema version + git SHA) make every published number traceable.
+F: Why population stddev? — Documented, simple, and the seed list is the whole population of interest, not a sample.
+Wrong: "One deterministic run generalizes."
+
+**47. What does the state machine buy over plain status fields?**
+S: Illegal transitions throw at the transition site instead of surfacing as unreachable states later.
+D: The table is the single source of truth (tests crawl the engine asserting every observed change is legal). During hardening it turned the preemption livelock from a "weird metric" into an obviously impossible-state hunt, and it documents the lifecycle for free.
+F: Overhead? — One table lookup per transition; the idempotent same-state case short-circuits.
+Wrong: "It's a framework" — it is a record and a function.
+
 ---
 
 ## Part 4 — Rapid-fire one-liners

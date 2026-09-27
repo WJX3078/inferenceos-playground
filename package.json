@@ -1,8 +1,8 @@
 {
   "name": "inferenceos-playground",
   "private": true,
-  "version": "0.1.0",
-  "description": "Interactive browser simulation of modern LLM inference scheduling, paged KV cache, tensor parallelism, and speculative decoding.",
+  "version": "1.0.0",
+  "description": "Deterministic, browser-based LLM serving systems simulator: token-budget scheduling, chunked prefill, paged KV cache, prefix caching, cost-aware preemption, speculative decoding, disaggregated prefill/decode with KV transfer, SLO/goodput, and reproducible experiments.",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -15,7 +15,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "experiment": "node scripts/experiment.ts",
-    "check": "npm test && npm run build && npm run test:e2e"
+    "check": "npm test && npm run build && npm run test:e2e",
+    "docs:check": "node scripts/docs-check.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.0",
@@ -33,5 +34,6 @@
     "typescript": "~5.8.3",
     "vite": "^6.3.5",
     "vitest": "^4.1.11"
-  }
+  },
+  "license": "MIT"
 }

@@ -90,7 +90,7 @@ describe('Multi-tier KV cache', () => {
     let restored = false;
     for (let i = 0; i < 2000 && !restored; i++) {
       e.step();
-      restored = e.metrics.tierHitsCpu > 0;
+      restored = e.metrics.cpuHitBlocks > 0;
     }
     expect(restored).toBe(true);
     drain(e);
@@ -109,7 +109,7 @@ describe('Multi-tier KV cache', () => {
     const warm = e.enqueue({ promptTokens: 256, outputTokens: 2, prefix: 'chat' });
     drain(e);
     expect(warm.cachedTokens).toBe(0);
-    expect(e.metrics.tierRecomputes).toBeGreaterThan(0);
+    expect(e.metrics.recomputeBlocks).toBeGreaterThan(0);
     e.assertInvariants();
   });
 

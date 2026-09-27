@@ -51,8 +51,9 @@ flowchart LR
 ```
 
 - Demotion is a **copy** (CPU/remote act as backing stores), sized in blocks (`cpuKvBlocks`, `remoteKvBlocks`); full tiers evict their LRU entry one level down (`tierEvictions`).
-- On a prefix lookup that misses in the GPU pool, the manager checks the tiers: if **all** missing blocks live in one tier, a restore is scheduled (queued through the same deterministic pipeline as P/D transfers, sharing that tier's illustrative bandwidth and paying its fixed latency). The request waits (`restore-queue` → `restore-complete` events), then re-runs admission with a full GPU hit.
-- If no single tier covers the missing run, the prefix falls back to **recompute** (`tierRecomputes`).
+- Lookups produce a **block-granular reuse plan**: walking the content-hash chain, each block of the contiguous prefix resolves to the fastest tier holding it — GPU → CPU → Remote. The first block found nowhere ends the reusable run; that block and everything after it is recomputed (a prefix cannot skip holes). Mixed plans are normal, e.g. `B0,B1 gpu · B2,B3 cpu · B4 remote · B5+ recompute`.
+- Every tier that holds missing blocks schedules its own restore record (queued through the same deterministic pipeline as P/D transfers, sharing that tier's illustrative bandwidth and paying its fixed latency). The request waits until ALL its restores land (`pendingRestoreCount`), then re-runs admission with a full GPU hit. Cancelling a request cancels every pending restore.
+- Counters are block-level: `gpuHitBlocks`, `cpuHitBlocks`, `remoteHitBlocks`, `recomputeBlocks`, plus `restores` and `restoreBytes`.
 - Metrics: per-tier hit counts, `restores`, `tierBytesMoved` (demotions + restores), restores/evictions per tier.
 
 **All tier latencies and bandwidths are illustrative model parameters, not measured hardware numbers.** There is no real PCIe/NVLink/PCIe-p2p modeling — the tier experiment teaches *capacity vs recompute vs restore-latency* trade-offs, not device benchmarks.

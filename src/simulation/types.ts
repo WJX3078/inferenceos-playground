@@ -15,12 +15,14 @@ export type Phase =
   | 'rejected';
 export type Priority = 'low' | 'normal' | 'high';
 export type SchedulerPolicy = 'fcfs' | 'sjf' | 'priority' | 'slo';
-export type PreemptionMode = 'none' | 'recompute';
+/** Legacy alias 'recompute' normalizes to 'cost-aware'. */
+export type PreemptionMode = 'none' | 'prefill-only' | 'cost-aware' | 'recompute';
 export type ServingMode = 'monolithic' | 'disaggregated';
 export type AcceptanceProfile = 'low' | 'medium' | 'high';
 export type KvTierMode = 'gpu' | 'gpu-cpu' | 'gpu-cpu-remote';
 export type PoolKind = 'both' | 'prefill' | 'decode';
 export type ArrivalMode = 'constant' | 'poisson' | 'burst' | 'trace';
+export type TransferSchedulingPolicy = 'fair-share' | 'fifo' | 'priority';
 
 export const PRIORITIES: Priority[] = ['low', 'normal', 'high'];
 export const priorityRank = (p: Priority) => PRIORITIES.indexOf(p);
@@ -39,6 +41,8 @@ export interface Config {
   prefillChunkSize: number;     // max prompt tokens per prefill sequence per iteration; 0 = off
   decodePriority: boolean;      // true: decode claims the token budget before prefill
   preemptionMode: PreemptionMode;
+  preemptionCooldownMs: number; // min simulated ms between two preemptions (anti-storm)
+  starvationThresholdMs: number; // waiting time before aging promotes a request; 0 = disabled
   kvWatermark: number;          // 0..0.5 fraction of the pool reserved away from admission
   // Prefix caching & speculative decoding
   prefixCaching: boolean;
@@ -60,6 +64,8 @@ export interface Config {
   kvTransferBandwidthGBps: number;   // illustrative
   kvTransferLatencyUs: number;       // illustrative fixed latency
   maxConcurrentTransfers: number;
+  transferSchedulingPolicy: TransferSchedulingPolicy;
+  maxPendingDecodeRequests: number;  // P/D backpressure: pending decode-side requests before prefill admission pauses; 0 = off
   // Multi-tier KV (all latencies/bandwidths illustrative, never measured hardware)
   kvTiers: KvTierMode;
   cpuKvBlocks: number;
@@ -80,6 +86,8 @@ export interface RequestInput {
   priority?: Priority;
   sloTTFTms?: number;
   sloTPOTms?: number;
+  /** Real-trace reference observations — display only, never drive the simulation. */
+  observed?: { ttftMs?: number; tpotMs?: number; e2eMs?: number };
 }
 
 export interface Span { phase: Phase; start: number; end: number }
@@ -112,9 +120,11 @@ export interface Request extends RequestInput {
   preemptions: number;
   recomputedTokens: number;
   transfer: { id: number; bytes: number; queuedAt: number; startedAt?: number; finishedAt?: number } | null;
-  restore: { tier: 'cpu' | 'remote'; bytes: number; queuedAt: number } | null;
+  pendingRestoreCount: number;  // outstanding tier-restore records before admission may proceed
   tierHit: 'gpu' | 'cpu' | 'remote' | null;
   resumeTarget: number | null;  // context tokens to recompute after a preemption resume
+  starvedSince: number | null;  // sim time when aging first promoted this request
+  observed: RequestInput['observed'];
   speculative: { drafted: number; accepted: number; rejected: number } | null;
   tokenSeed: number;            // per-request synthetic token stream seed
 }
@@ -180,13 +190,23 @@ export interface Metrics {
   transfersActive: number;
   transfersQueued: number;
   transfersCompleted: number;
-  // multi-tier KV
-  tierHitsGpu: number;
-  tierHitsCpu: number;
-  tierHitsRemote: number;
-  tierRecomputes: number;
-  tierBytesMoved: number;
+  // multi-tier KV (block-granular)
+  gpuHitBlocks: number;
+  cpuHitBlocks: number;
+  remoteHitBlocks: number;
+  recomputeBlocks: number;
+  restoreBytes: number;
   restores: number;
+  tierBytesMoved: number;
+  // starvation protection & backpressure
+  starvationEvents: number;
+  maxQueueWait: number | null;
+  backpressureEvents: number;
+  backpressureTicks: number;
+  // transfer pipeline
+  transferWaitP50: number | null;
+  transferWaitP99: number | null;
+  networkUtilization: number;
 }
 
 export interface Sample { at: number; tokens: number; gpu: number; kv: number }
@@ -203,6 +223,8 @@ export const DEFAULT_CONFIG: Config = {
   prefillChunkSize: 0,
   decodePriority: true,
   preemptionMode: 'none',
+  preemptionCooldownMs: 500,
+  starvationThresholdMs: 10000,
   kvWatermark: 0,
   prefixCaching: true,
   speculativeDecoding: false,
@@ -221,6 +243,8 @@ export const DEFAULT_CONFIG: Config = {
   kvTransferBandwidthGBps: 32,
   kvTransferLatencyUs: 50,
   maxConcurrentTransfers: 4,
+  transferSchedulingPolicy: 'fair-share',
+  maxPendingDecodeRequests: 24,
   kvTiers: 'gpu',
   cpuKvBlocks: 512,
   cpuRestoreBandwidthGBps: 16,
@@ -268,7 +292,13 @@ export function normalizeConfig(partial: Partial<Config>): Config {
   c.prefillChunkSize = c.prefillChunkSize > 0 ? finiteInt(c.prefillChunkSize, 8, 8192) : 0;
   c.kvWatermark = Number.isFinite(c.kvWatermark) ? Math.min(0.5, Math.max(0, c.kvWatermark)) : 0;
   c.schedulerPolicy = ['fcfs', 'sjf', 'priority', 'slo'].includes(c.schedulerPolicy) ? c.schedulerPolicy : 'fcfs';
-  c.preemptionMode = c.preemptionMode === 'recompute' ? 'recompute' : 'none';
+  c.preemptionMode = ['none', 'prefill-only', 'cost-aware'].includes(c.preemptionMode) ? c.preemptionMode
+    : c.preemptionMode === 'recompute' ? 'cost-aware' : 'none';
+  c.preemptionCooldownMs = finiteInt(c.preemptionCooldownMs, 0, 60000);
+  c.starvationThresholdMs = finiteInt(c.starvationThresholdMs, 0, 600000);
+  c.transferSchedulingPolicy = ['fair-share', 'fifo', 'priority'].includes(c.transferSchedulingPolicy)
+    ? c.transferSchedulingPolicy : 'fair-share';
+  c.maxPendingDecodeRequests = finiteInt(c.maxPendingDecodeRequests, 0, 256);
   c.servingMode = c.servingMode === 'disaggregated' ? 'disaggregated' : 'monolithic';
   c.specDraftLength = finiteInt(c.specDraftLength, 1, 16);
   c.specAcceptance = ['low', 'medium', 'high'].includes(c.specAcceptance) ? c.specAcceptance : 'medium';

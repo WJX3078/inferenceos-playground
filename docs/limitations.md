@@ -21,11 +21,14 @@ What this simulator is, stated plainly: **a deterministic teaching model of sche
 
 - Main-thread engine sized for teaching workloads (bounded bursts, ≤ 256 queued, ≤ 8192-token prompts). It is not a load generator.
 - Display history prunes to the newest 160 terminal requests / 150 events / 180 samples; observations keep the newest 4000 requests. Exports include those records plus lifetime counters — not an exhaustive log.
-- Multi-tier fallback is all-or-nothing per lookup: partial GPU + partial CPU hits recompute instead of mixing restores.
-- Disaggregated preemption only targets requests still in prefill; decode-phase KV is never preempted.
-- The bandwidth-sharing model splits bandwidth equally among active transfers; no QoS, no per-flow fair queueing.
+- Multi-tier restore prices are per-tier flat bandwidth/latency with no device-level contention modeling beyond the shared pipe.
+- Cost-aware preemption prices a victim as `contextTarget − cachedTokens`; it does not model tier-restorable blocks or cross-prefix sharing in the recompute estimate.
+- The aging (starvation protection) promotion is a hard priority bump, not a gradual weight; threshold defaults are teaching values.
+- Backpressure gates prefill admission by a pending-request count only; no byte-level admission shaping.
+- The preemption cost heuristic, cooldown (default 500 ms) and residency (200 ms) are illustrative teaching constants, not tuned values.
 - Percentiles use nearest-rank over retained observations; with < 20 samples treat them as indicative.
 - Tested in Chromium (Playwright); other engines are not certified.
+- Trace `observed_*` fields are display-only references; the simulator performs no calibration and computes no accuracy metric.
 
 ## Claims discipline
 

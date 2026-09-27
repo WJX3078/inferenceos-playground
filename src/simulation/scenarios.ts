@@ -85,7 +85,7 @@ export const SCENARIOS: Scenario[] = [
     id: 'priority-inversion', name: 'Priority + preemption', group: 'Scheduling',
     learn: 'Six long low-priority requests occupy the replica; a high-priority request arrives and preempts (recompute mode): watch the preempt/resume events, freed KV, and the recomputation cost paid on resume.',
     config: {
-      gpuCount: 1, maxBatchSize: 2, numBlocks: 96, schedulerPolicy: 'priority', preemptionMode: 'recompute',
+      gpuCount: 1, maxBatchSize: 2, numBlocks: 96, schedulerPolicy: 'priority', preemptionMode: 'cost-aware',
     },
     input: { promptTokens: 512, outputTokens: 64, prefix: 'none' }, count: 0, rate: 0,
     requests: [
@@ -161,6 +161,92 @@ export const SCENARIOS: Scenario[] = [
     config: { gpuCount: 2, maxBatchSize: 8 },
     input: { promptTokens: 512, outputTokens: 64, prefix: 'none' }, count: 4, rate: 2,
     arrival: 'burst', traffic: { burstSize: 8, burstEveryMs: 3000 },
+  },
+  {
+    id: 'cost-aware-preemption', name: 'Cost-aware preemption', group: 'Scheduling',
+    learn: 'A high-priority arrival evicts the CHEAPEST victim: watch the preempt events pick young/small requests over heavily-decoded ones, and compare the recomputed-token bill with the priority-inversion scenario.',
+    config: {
+      gpuCount: 1, maxBatchSize: 1, numBlocks: 256, schedulerPolicy: 'priority', preemptionMode: 'cost-aware',
+      preemptionCooldownMs: 0,
+    },
+    input: { promptTokens: 512, outputTokens: 64, prefix: 'none', priority: 'low' }, count: 0, rate: 0,
+    requests: [
+      { atMs: 0, input: { promptTokens: 512, outputTokens: 64, prefix: 'none', priority: 'low' } },
+      { atMs: 40, input: { promptTokens: 512, outputTokens: 64, prefix: 'none', priority: 'low' } },
+      { atMs: 80, input: { promptTokens: 512, outputTokens: 64, prefix: 'none', priority: 'low' } },
+      { atMs: 2500, input: { promptTokens: 128, outputTokens: 16, prefix: 'none', priority: 'high' } },
+    ],
+  },
+  {
+    id: 'priority-preemption-storm', name: 'Preemption storm guard', group: 'Scheduling',
+    learn: 'A stream of high-priority arrivals would evict a running request every iteration without guards. Watch the cooldown + minimum residency suppress the storm (few preemptions) while keeping highs served.',
+    config: {
+      gpuCount: 1, maxBatchSize: 1, numBlocks: 512, schedulerPolicy: 'priority', preemptionMode: 'cost-aware',
+      preemptionCooldownMs: 1000,
+    },
+    input: { promptTokens: 256, outputTokens: 128, prefix: 'none', priority: 'normal' }, count: 0, rate: 0,
+    requests: [
+      { atMs: 0, input: { promptTokens: 256, outputTokens: 256, prefix: 'none', priority: 'low' } },
+      { atMs: 500, input: { promptTokens: 64, outputTokens: 8, prefix: 'none', priority: 'high' } },
+      { atMs: 1000, input: { promptTokens: 64, outputTokens: 8, prefix: 'none', priority: 'high' } },
+      { atMs: 1500, input: { promptTokens: 64, outputTokens: 8, prefix: 'none', priority: 'high' } },
+      { atMs: 2000, input: { promptTokens: 64, outputTokens: 8, prefix: 'none', priority: 'high' } },
+      { atMs: 2500, input: { promptTokens: 64, outputTokens: 8, prefix: 'none', priority: 'high' } },
+    ],
+  },
+  {
+    id: 'decode-preemption-expensive', name: 'Decode preemption is expensive', group: 'Scheduling',
+    learn: 'With cost-aware preemption, preempting a request that has decoded hundreds of tokens costs a huge recompute bill. Watch recomputedTokens and compare with preempting a fresh prefill.',
+    config: {
+      gpuCount: 1, maxBatchSize: 1, numBlocks: 256, schedulerPolicy: 'priority', preemptionMode: 'cost-aware',
+      preemptionCooldownMs: 0,
+    },
+    input: { promptTokens: 128, outputTokens: 320, prefix: 'none', priority: 'low' }, count: 0, rate: 0,
+    requests: [
+      { atMs: 0, input: { promptTokens: 128, outputTokens: 320, prefix: 'none', priority: 'low' } },
+      { atMs: 6000, input: { promptTokens: 64, outputTokens: 8, prefix: 'none', priority: 'high' } },
+    ],
+  },
+  {
+    id: 'network-contention', name: 'Network contention (P/D)', group: 'Topology',
+    learn: 'Several KV transfers share one pipe. Compare transferSchedulingPolicy: fair-share splits bandwidth, fifo serves strictly in queue order. Watch transfer wait p99 and how the prefill pool backs up.',
+    config: {
+      servingMode: 'disaggregated', gpuCount: 8, prefillGpuCount: 4, decodeGpuCount: 4,
+      numBlocks: 256, kvTransferBandwidthGBps: 8, maxConcurrentTransfers: 4,
+      transferSchedulingPolicy: 'fair-share',
+    },
+    input: { promptTokens: 2048, outputTokens: 32, prefix: 'chat' }, count: 8, rate: 2,
+  },
+  {
+    id: 'priority-transfer', name: 'Priority-aware KV transfer', group: 'Topology',
+    learn: 'Same contention, priority-aware scheduling: high-priority KV transfers jump the transfer queue. Capture both this and network-contention in Compare and watch TTFT p99 move.',
+    config: {
+      servingMode: 'disaggregated', gpuCount: 8, prefillGpuCount: 4, decodeGpuCount: 4,
+      numBlocks: 256, kvTransferBandwidthGBps: 8, maxConcurrentTransfers: 4,
+      transferSchedulingPolicy: 'priority',
+    },
+    input: { promptTokens: 2048, outputTokens: 32, prefix: 'chat' }, count: 8, rate: 2,
+    priorityMix: mixAll(1, 1, 1),
+  },
+  {
+    id: 'decode-bottleneck-backpressure', name: 'Decode backpressure (P/D)', group: 'Topology',
+    learn: 'With backpressure on (maxPendingDecodeRequests), prefill admission PAUSES when the decode pipeline is full instead of piling un-transferable KV. Set the limit to 0 in the controls and compare queue growth.',
+    config: {
+      servingMode: 'disaggregated', gpuCount: 8, prefillGpuCount: 6, decodeGpuCount: 2,
+      numBlocks: 256, maxBatchSize: 8, maxPendingDecodeRequests: 6, kvTransferBandwidthGBps: 16,
+    },
+    input: { promptTokens: 256, outputTokens: 128, prefix: 'chat' }, count: 10, rate: 3,
+  },
+  {
+    id: 'starvation-aging', name: 'Starvation aging', group: 'Scheduling',
+    learn: 'SJF under a flood of short requests: a long request waits until the starvation threshold (2s here) promotes it. Watch the starvation event in the trace and its eventual admission.',
+    config: {
+      gpuCount: 1, maxBatchSize: 2, schedulerPolicy: 'sjf', numBlocks: 256, starvationThresholdMs: 2000,
+    },
+    input: { promptTokens: 64, outputTokens: 8, prefix: 'none' }, count: 2, rate: 4,
+    requests: [
+      { atMs: 0, input: { promptTokens: 2048, outputTokens: 128, prefix: 'none' } },
+    ],
   },
 ];
 

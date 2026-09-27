@@ -1,0 +1,8 @@
+{"timestamp_ms": 0, "prompt_tokens": 1024, "output_tokens": 128, "priority": 1, "prefix_group": "chat", "observed_ttft_ms": 240, "observed_tpot_ms": 18.2}
+{"timestamp_ms": 300, "prompt_tokens": 512, "output_tokens": 64, "priority": 1, "prefix_group": "chat"}
+{"timestamp_ms": 600, "prompt_tokens": 2048, "output_tokens": 128, "priority": 2, "prefix_group": "rag-docs"}
+{"timestamp_ms": 900, "prompt_tokens": 256, "output_tokens": 32, "priority": 0}
+{"timestamp_ms": 1200, "prompt_tokens": 768, "output_tokens": 96, "priority": 1, "prefix_group": "chat"}
+{"timestamp_ms": 1500, "prompt_tokens": 512, "output_tokens": 64, "priority": 1, "prefix_group": "chat"}
+{"timestamp_ms": 1800, "prompt_tokens": 384, "output_tokens": 48, "priority": 2, "prefix_group": "rag-docs"}
+{"timestamp_ms": 2100, "prompt_tokens": 128, "output_tokens": 16, "priority": 0}

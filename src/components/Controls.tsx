@@ -107,8 +107,10 @@ export function Controls(p: Props) {
       <Toggle label="Decode priority" value={p.config.decodePriority} onChange={() => p.setFeature('decodePriority', !p.config.decodePriority)} tip="On: decoding sequences claim the token budget before prefill chunks. Off: prefill goes first and long prefills can stall decodes (ITL spikes)." />
       <Toggle label="Prefix caching" value={p.config.prefixCaching} onChange={() => p.setFeature('prefixCaching', !p.config.prefixCaching)} tip="Reuse immutable full KV blocks for identical prefix token content on the same replica. Unreferenced blocks are evicted LRU." />
       <TextField label="Preemption" value={p.config.preemptionMode} onChange={v => p.setFeature('preemptionMode', v as Config['preemptionMode'])}
-        tip="Recompute: a strictly higher-ranked waiting request may evict a running one under pressure; the victim loses its KV and recomputes the context on resume."
-        options={[{ value: 'none', label: 'None' }, { value: 'recompute', label: 'Recompute' }]} />
+        tip="Cost-aware: a strictly higher-ranked waiting request may evict the CHEAPEST running victim (fewest tokens to recompute), gated by a cooldown and a minimum residency. Prefill-only never evicts decoding requests."
+        options={[{ value: 'none', label: 'None' }, { value: 'prefill-only', label: 'Prefill-only' }, { value: 'cost-aware', label: 'Cost-aware' }]} />
+      <NumberField label="Preemption cooldown" value={p.config.preemptionCooldownMs} min={0} max={60000} unit="ms" onChange={n => p.setFeature('preemptionCooldownMs', n)} />
+      <NumberField label="Starvation threshold" value={p.config.starvationThresholdMs} min={0} max={600000} unit="ms" onChange={n => p.setFeature('starvationThresholdMs', n)} />
     </section>
     <section className="control-section">
       <h2><Waves size={15} /> SLO & goodput</h2>
@@ -162,6 +164,13 @@ export function Controls(p: Props) {
         <NumberField label="KV transfer BW" value={hardware.kvTransferBandwidthGBps} min={1} max={400} unit="GB/s" onChange={n => patch('kvTransferBandwidthGBps', n)} />
         <NumberField label="Transfer latency" value={hardware.kvTransferLatencyUs} min={0} max={10000} unit="us" onChange={n => patch('kvTransferLatencyUs', n)} />
       </div>}
+      {disagg && <>
+        <TextField label="Transfer scheduling" value={p.config.transferSchedulingPolicy} onChange={v => p.setFeature('transferSchedulingPolicy', v as Config['transferSchedulingPolicy'])}
+          tip="How concurrent KV transfers share the pipe: fair-share splits bandwidth equally, fifo serves the queue strictly head-of-line, priority starts high-priority requests first."
+          options={[{ value: 'fair-share', label: 'Fair-share' }, { value: 'fifo', label: 'FIFO (serial)' }, { value: 'priority', label: 'Priority-first' }]} />
+        <NumberField label="Backpressure limit" value={p.config.maxPendingDecodeRequests} min={0} max={256} unit="pending" onChange={n => p.setFeature('maxPendingDecodeRequests', n)} />
+        <div className="capacity"><span>0 disables backpressure; otherwise prefill admission pauses when the decode pipeline holds this many pending requests.</span></div>
+      </>}
       <div className="capacity"><span>Context capacity</span><b>{(hardware.numBlocks * hardware.blockSize).toLocaleString()} tok / replica</b></div>
       <button className={`secondary full ${dirty ? 'dirty' : ''}`} disabled={!dirty}
         onClick={() => {
@@ -180,7 +189,7 @@ export function Controls(p: Props) {
       <div className="export-row">
         <button type="button" className="secondary" onClick={p.onExportScenario}><Network size={13} /> Export scenario</button>
         <label className="secondary import-button"><Network size={13} /> Import
-          <input type="file" accept="application/json" aria-label="Import scenario" onChange={e => { const f = e.target.files?.[0]; if (f) p.onImportScenario(f); e.target.value = ''; }} />
+          <input type="file" accept="application/json,.jsonl" aria-label="Import scenario" onChange={e => { const f = e.target.files?.[0]; if (f) p.onImportScenario(f); e.target.value = ''; }} />
         </label>
       </div>
     </section>

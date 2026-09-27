@@ -61,7 +61,7 @@ test('scheduler policy, chunked prefill and preemption switches work live', asyn
   await expect(page.locator('.runtime-heading')).toContainText('PRIORITY');
   await page.getByLabel('Scheduler policy').selectOption('slo');
   await expect(page.locator('.runtime-heading')).toContainText('SLO');
-  await page.getByLabel('Preemption', { exact: true }).selectOption('recompute');
+  await page.getByLabel('Preemption', { exact: true }).selectOption('cost-aware');
   await page.getByLabel('Prefill chunk', { exact: true }).selectOption('64');
   await page.getByRole('button', { name: 'Resume simulation' }).click();
   await expect(page.getByTestId('sim-time')).not.toHaveText('0.00 s', { timeout: 15000 });

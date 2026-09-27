@@ -59,18 +59,44 @@ A long prompt does not have to be prefilled in one iteration. With `prefillChunk
 - KV blocks are allocated incrementally for exactly the processed tokens,
 - the chunk competes for the same token budget as decodes (the trade-off chunking exists to manage).
 
-## Preemption (recompute mode)
+## Preemption
 
-With `preemptionMode: 'recompute'`, when a waiting/preempted candidate cannot be admitted (KV pressure, watermark, or batch slots) and its policy says it strictly outranks a running request, the engine evicts the *least deserving* victim (the last one in the scheduler's order among eligible victims):
+Preemption is a policy decision with a price. `preemptionMode` selects the behavior (legacy `'recompute'` normalizes to `'cost-aware'`):
 
-1. The victim's non-shared KV ownership is released (shared immutable prefix blocks simply lose one owner).
-2. Status → `preempted`; `preemptions++`; compute progress reset; the request leaves the pool.
-3. On re-admission the request becomes a **recompute**: its prefill target is `promptTokens + generated` (the generated suffix is now context). `recomputedTokens` counts the tokens actually recomputed (target minus any prefix-cache hit).
-4. Events: `preempt` (with the winner), `resume` (with the recompute size), and a `prefill` completion event carrying the recompute bill.
+| Mode | Who may be evicted | Victim choice |
+| --- | --- | --- |
+| `none` | nobody | — |
+| `prefill-only` | requests still in prefill | least-deserving by policy order |
+| `cost-aware` | any running request on an eligible pool | **cheapest victim** |
 
-Termination and no-livelock: preemption requires a *strict* outranking in a total order (arrival, remaining work, class, or urgency — all with `(arrivedAt, id)` tie-breaks), so two requests can never preempt each other in a cycle. Disaggregated mode never preempts requests that already finished prefill (their KV is committed to the decode pool); prefill-phase preemption works normally.
+**Victim cost (documented heuristic — an illustrative policy, not vLLM behavior):**
 
-Counters: global `preemptions` and `recomputedTokens` in the metrics strip, per-request `preemptions` / `recomputedTokens` in the inspector and the observations export.
+```
+recomputeCost(v) = contextTarget(v) - v.cachedTokens
+```
+
+the tokens a resume would recompute (prompt + generated suffix minus the prefix hit the victim enjoyed). Preempting a request that just started prefill is cheap; preempting one that decoded for seconds is expensive — the scheduler prefers young, small victims.
+
+**Anti-storm guarantees (deterministic, no wall clock):**
+
+- *Minimum residency*: `MIN_RESIDENCY_MS = 200` — a victim must have run at least 200 simulated ms before eviction.
+- *Cooldown*: `preemptionCooldownMs` (default 500) — at most one preemption per cooldown window engine-wide.
+- *Strict ordering*: the candidate must strictly outrank the victim in the scheduler's total order, so cycles are impossible.
+- *Victim exclusion*: after a preemption the candidate is retried immediately and the fresh victim is excluded from the rest of that admission pass (the structural fix for a victim/candidate swap livelock found during v1.0 hardening).
+
+**Mechanics:** the victim's non-shared KV ownership is released (shared immutable prefix blocks lose one owner), status → `preempted` via the state machine, compute progress reset. On re-admission the request recomputes: its prefill target is `promptTokens + generated`, and `recomputedTokens` counts target minus the new prefix-cache hit. Events: `preempt` (with winner and estimated cost), `resume`, and a `prefill` completion carrying the recompute bill.
+
+Disaggregated mode never preempts requests past prefill (their KV is committed to the decode pool).
+
+Counters: global `preemptions` / `recomputedTokens`; per-request in the inspector and observations export.
+
+## Starvation protection (aging)
+
+Without protection, SJF/priority/SLO ordering can starve requests under sustained adverse load. With `starvationThresholdMs > 0` (default 10000), any request waiting at least that long is promoted to the FRONT of the admission order (arrival-ordered) regardless of policy, until it is admitted. First promotion emits a `starvation` event and increments `starvationEvents`; `maxQueueWait` reports the largest observed queue latency. FCFS is unaffected (arrival order is already aging-complete). The `starvation-aging` scenario shows a long SJF victim finally running under a flood of short requests.
+
+## P/D backpressure
+
+In disaggregated mode, `maxPendingDecodeRequests` (0 = off) caps the decode-side pipeline (`transfer_wait + transferring + decode_wait`). When the cap is reached, prefill admission PAUSES (requests keep their `waiting` status with reason "Backpressure: decode pipeline full") instead of producing un-transferable KV. Rising edges count `backpressureEvents`; saturated ticks count `backpressureTicks`. See docs/disaggregated-serving.md.
 
 ## KV watermark (`kvWatermark`)
 

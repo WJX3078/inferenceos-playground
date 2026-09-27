@@ -18,7 +18,12 @@ export type Distribution =
   | { kind: 'uniform'; min: number; max: number }
   | { kind: 'discrete'; options: { value: number; weight: number }[] };
 
-export interface TraceRequest { atMs: number; input: RequestInput }
+export interface TraceRequest {
+  atMs: number;
+  input: RequestInput;
+  /** Real-trace reference observations — carried through to the request for display only. */
+  observed?: { ttftMs?: number; tpotMs?: number; e2eMs?: number };
+}
 
 export interface TrafficSpec {
   enabled: boolean;
@@ -115,7 +120,8 @@ export class WorkloadGenerator {
     if (this.spec.arrival === 'trace') {
       const requests = this.spec.requests ?? [];
       while (this.traceIndex < requests.length && requests[this.traceIndex].atMs <= now) {
-        out.push({ ...requests[this.traceIndex].input });
+        const t = requests[this.traceIndex];
+        out.push({ ...t.input, ...(t.observed ? { observed: t.observed } : {}) });
         this.traceIndex++;
       }
       return out;

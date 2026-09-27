@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "multi-seed sensitivity example (illustrative)",
+  "seed": 1,
+  "seeds": [1, 2, 3, 4, 5],
+  "config": { "gpuCount": 2, "numBlocks": 128, "maxBatchSize": 8 },
+  "traffic": {
+    "enabled": true, "arrival": "poisson", "rate": 3,
+    "prompt": { "kind": "uniform", "min": 128, "max": 512 },
+    "output": { "kind": "uniform", "min": 32, "max": 96 },
+    "prefix": "chat", "prefixReuseProbability": 0.8
+  },
+  "maxSimMs": 15000,
+  "notes": "Paired multi-seed run: same seed list for every variant, aggregate stats quantify workload-stream sensitivity."
+}

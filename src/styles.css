@@ -200,6 +200,8 @@ main { min-width: 0; background: #111416; }
 }
 
 /* ---- InferenceOS Lab v2 additions ---- */
+.observed-detail { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; padding: 8px; background: #1f2426; border: 1px dashed #4a5a64; border-radius: 3px; font: 8px monospace; color: #9ab0bd; }
+.observed-detail > span:first-child { color: #d0b278; }
 .dot.preempted { background: #ed8790; }
 .dot.transfer_wait, .dot.transferring { background: #e4b666; }
 .dot.decode_wait { background: #b0cee5; }

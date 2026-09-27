@@ -21,7 +21,7 @@ Reading about vLLM-style schedulers teaches you the vocabulary; running experime
 
 ## What can I learn from it?
 
-Every mechanism a modern serving scheduler has: admission control, token budgets (`max_num_batched_tokens`), chunked prefill, decode priority, paged KV blocks and block tables, content-addressed prefix caching, LRU eviction, KV watermarking, recompute preemption, speculative drafting/verification, tensor parallelism (conceptual), prefill/decode disaggregation with KV transfer, and tail-latency (p50/p95/p99), SLO and goodput accounting. 22 built-in scenarios each isolate one trade-off; see the scenario banner in the app and [docs/experiments.md](docs/experiments.md).
+Every mechanism a modern serving scheduler has: admission control, token budgets (`max_num_batched_tokens`), chunked prefill, decode priority, paged KV blocks and block tables, content-addressed prefix caching, LRU eviction, KV watermarking, recompute preemption, speculative drafting/verification, tensor parallelism (conceptual), prefill/decode disaggregation with KV transfer, and tail-latency (p50/p95/p99), SLO and goodput accounting. 29 built-in scenarios each isolate one trade-off; see the scenario banner in the app and [docs/experiments.md](docs/experiments.md).
 
 ## How do I run it?
 
@@ -50,11 +50,13 @@ Every run is fully deterministic: **same engine version + same seed + same confi
 | --- | --- |
 | Batching | continuous & static batching, per-iteration token budget, chunked prefill, decode priority |
 | Memory | paged KV blocks, block tables, conservative admission reservations, KV watermark |
-| Caching | content-hash prefix identity, immutable shared blocks, LRU eviction, optional GPU/CPU/remote tiers |
-| Robustness | recompute preemption, per-request preemption/recompute accounting |
+| Caching | content-hash prefix identity, immutable shared blocks, LRU eviction, GPU/CPU/remote tiers with block-granular restore plans |
+| Robustness | cost-aware recompute preemption (cheapest victim, cooldown, minimum residency, prefill-only mode), starvation aging |
 | Scheduling | FCFS, SJF/shortest-remaining-work, Priority, SLO-aware (explainable urgency) |
-| Topology | replicas, conceptual TP, prefill/decode disaggregation, simulated KV transfer with bandwidth sharing |
+| Topology | replicas, conceptual TP, prefill/decode disaggregation, simulated KV transfer (fair-share/FIFO/priority), P/D backpressure |
+| Real workloads | JSONL/JSON trace replay with validation and adapters; Observed-vs-Simulated reference display |
 | Optimization | configurable speculative decoding (draft length, acceptance profile, step cost) |
+| Experiments | scenario JSON v1 with schema validation, result fingerprints, multi-seed paired statistics, headless CLI, real-trace replay |
 | Metrics | TTFT/TPOT/E2E means **and p50/p90/p95/p99**, SLO attainment, goodput, utilization, event trace |
 
 ## What is NOT simulated?
@@ -69,29 +71,36 @@ npm run build         # type check + production bundle
 npx playwright install chromium
 npm run test:e2e      # real-browser workflows at 360-1920 px
 npm run check         # all of the above
+npm run docs:check    # README/docs consistency (links, scenario counts, claims)
+node scripts/bench.ts # engine microbenchmark (JS simulator speed only)
 ```
 
-GitHub Actions runs the suite on pushes and PRs.
+GitHub Actions splits `unit-build` and `e2e` jobs, cancels superseded runs, and uploads the Playwright report on failure.
 
 ## Repository Layout
 
 ```text
 inferenceos-playground/
-├── .github/workflows/ci.yml
-├── docs/                    # architecture, per-mechanism docs, interview guide
+├── .github/workflows/ci.yml # unit+build and e2e jobs, concurrency, timeouts
+├── docs/                    # architecture, per-mechanism docs, design decisions,
+│                            #   testing strategy, demo script, interview guide
 ├── e2e/                     # Playwright browser tests
 ├── scenarios/               # versioned experiment JSON (v1 schema)
-├── scripts/experiment.ts    # headless CLI runner (sweeps, JSON results)
+├── scripts/                 # experiment CLI, bench, docs-check, screenshot capture
 ├── src/components/          # React views (configuration & display only)
 ├── src/simulation/          # deterministic simulation core (React-free)
-│   ├── engine.ts            #   fixed-step engine, admission, iterations, lifecycle
+│   ├── engine.ts            #   orchestrator: clock, step loop, intake, invariants
+│   ├── runtime/             #   admission, executor, preemption, lifecycle, accounting
 │   ├── scheduler/           #   FCFS / SJF / Priority / SLO policies
 │   ├── cache.ts             #   paged KV cache, content-hash prefix identity, tiers
-│   ├── transfer.ts          #   simulated KV transfer manager
+│   ├── transfer.ts          #   simulated KV transfer manager (scheduling policies)
 │   ├── workload.ts          #   seeded workload generator (constant/poisson/burst/trace)
+│   ├── trace.ts             #   JSONL/JSON trace import + validation
+│   ├── trace-adapters/      #   OpenAI-compatible adapter, documented mini-vllm interface
 │   ├── metrics.ts           #   observations, percentiles, SLO, goodput
-│   ├── experiment.ts        #   scenario files, sweeps, replay
-│   └── *.test.ts            #   invariant, regression, randomized stress tests
+│   ├── experiment.ts        #   scenario files, validation, sweeps, multi-seed, fingerprints
+│   ├── version.ts           #   engine version (replay comparability)
+│   └── *.test.ts            #   invariant, regression, property, randomized stress tests
 └── src/App.tsx              # simulation clock & workspace shell
 ```
 
@@ -122,4 +131,8 @@ The engine never touches wall-clock time; one `step()` advances 20 simulated mil
 
 ## Testing
 
-The suite treats correctness as the product: the simulation core is exercised by invariant tests (no KV leaks, no duplicate page ownership, no mutable shared pages, budget never exceeded, transfer-before-decode, exact output lengths, deterministic replay), deterministic regression tests for each serving behavior, and randomized stress tests that run tens of thousands of ticks across adversarial configurations with invariants checked throughout. No test is skipped to make the suite green.
+The suite treats correctness as the product: invariant tests (no KV leaks, no duplicate page ownership, no mutable shared pages, budget never exceeded, transfer-before-decode, exact output lengths, deterministic replay), deterministic regression tests per serving behavior, property-based tests (monotonic counters, transfer conservation, no queue black holes), and randomized stress tests across adversarial configurations with invariants checked throughout. An explicit request state machine makes illegal transitions throw; a mutation-style bug-class map lives in [docs/testing-strategy.md](docs/testing-strategy.md). No test is skipped to make the suite green.
+
+## License
+
+[MIT](LICENSE)

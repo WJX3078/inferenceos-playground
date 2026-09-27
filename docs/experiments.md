@@ -55,7 +55,7 @@ The runner prints a human-readable summary per result (TTFT/TPOT/E2E percentiles
 
 Same **engine version + seed + config + workload** ⇒ identical results. The suite asserts this two ways: engine-level replay tests (identical requests, metrics, and summaries) and scenario-level replay (`replayIdentical`). If you change the engine's behavior, bump expectations in tests and note it — old exported runs are only comparable within the same engine version (`RunResult.engineVersion`).
 
-## Built-in scenario catalog (22)
+## Built-in scenario catalog (29)
 
 | Group | Scenario | Learn |
 | --- | --- | --- |
@@ -69,11 +69,51 @@ Same **engine version + seed + config + workload** ⇒ identical results. The su
 | KV & memory | kv-pressure | reservation queueing, LRU eviction, reuse generations |
 | KV & memory | kv-thrashing | watermark 0 vs 0.1: evictions/preemptions/p99 |
 | Scheduling | priority-inversion | priority + recompute preemption and its bill |
-| Scheduling | starvation-test | low-priority starvation under priority scheduling |
+| Scheduling | cost-aware-preemption | cheapest-victim selection and the recompute bill |
+| Scheduling | priority-preemption-storm | cooldown + residency suppress preemption storms |
+| Scheduling | decode-preemption-expensive | preempting deep decode costs a large recompute |
 | Scheduling | slo-overload | throughput ↑ while goodput ↓ |
+| Scheduling | starvation-aging | aging rescues an SJF-starved long request |
+| Scheduling | starvation-test | low-priority starvation under priority scheduling |
 | Topology | tensor-parallel | TP ranks share a batch, KV sharded per rank |
-| Topology | disaggregated-balanced / prefill-bottleneck / decode-bottleneck | P/D ratio moves the queue |
+| Topology | disaggregated-balanced / disaggregated-prefill-bottleneck / disaggregated-decode-bottleneck | P/D ratio moves the queue |
 | Topology | network-bottleneck | transfer bandwidth dominates TTFT |
-| Optimization | speculative-low / high-acceptance | spec decode can be a net loss |
+| Topology | network-contention | concurrent transfers share the pipe |
+| Topology | priority-transfer | priority-aware transfer queue jumping |
+| Topology | decode-bottleneck-backpressure | prefill admission pauses under decode saturation |
+| Optimization | speculative-low-acceptance / speculative-high-acceptance | spec decode can be a net loss |
 
 Each scenario's "what to observe" text is shown in the app banner and in `src/simulation/scenarios.ts`.
+
+## Real workload traces (JSONL/JSON)
+
+Replay the *shape* of a real serving workload — never a calibration claim. One request per line (JSONL) or a JSON array:
+
+```json
+{"timestamp_ms": 1234, "prompt_tokens": 1024, "output_tokens": 128, "priority": 1, "prefix_group": "chat",
+ "observed_ttft_ms": 92, "observed_tpot_ms": 13.7, "observed_e2e_ms": 1830}
+```
+
+- Required: `timestamp_ms` (≥ 0), `prompt_tokens`, `output_tokens` (positive integers). Optional: `priority` (`0|1|2` or `low|normal|high`), `prefix_group`.
+- Optional `observed_*` fields are carried through to per-request observations and displayed **side-by-side with simulated values, reference only**. The simulator computes a *difference*, never a "prediction error", and performs no calibration.
+- Validation collects every problem with line numbers: `Invalid trace: line 3: output_tokens must be a positive integer`.
+- Import in the UI (Import → a `.jsonl` file) or the CLI: `npm run experiment -- --trace requests.jsonl --config base-scenario.json`.
+- Source adapters live in `src/simulation/trace-adapters/`: a working OpenAI-compatible request-log adapter, and a **documented mini-vllm adapter interface** whose field map is intentionally unfilled — schemas are not invented here.
+
+## Multi-seed experiments and paired comparison
+
+Single-seed runs are for byte-identical reproducibility. Multi-seed runs quantify sensitivity to the stochastic workload stream:
+
+```bash
+npm run experiment -- scenarios/my.json --seeds 1,2,3,4,5
+```
+
+or `"seeds": [1,2,3,4,5]` in the scenario file. Output: per-seed results plus mean/median/min/max/stddev (population) for TTFT/TPOT p50+p99, E2E p99, throughput, goodput, SLO attainment, preemptions, recomputed tokens and evictions. Comparisons are **paired**: every variant runs the same seed list, so per-seed deltas are meaningful (`runPairedComparison`). No error bars are drawn — the aggregate table states its own statistics.
+
+## Result fingerprints
+
+Every `RunResult` carries a fingerprint: `engineVersion`, `scenarioSchemaVersion`, `seed`, `configHash`, `workloadHash`, `resultHash` (stable FNV-1a over key-sorted JSON), plus `gitCommit` when produced by the CLI inside a git checkout. Same inputs ⇒ same fingerprint; the CLI prints it and the replay tests assert it.
+
+## Runtime schema validation
+
+`runScenario` validates before running and throws `Invalid scenario:` with precise, named problems — unknown config keys, out-of-range values, bad enums (`schedulerPolicy: "random"`), negative rates, malformed sweep paths, malformed trace requests. No silent fallbacks; `npm run experiment` fails loudly instead of running the wrong experiment.
