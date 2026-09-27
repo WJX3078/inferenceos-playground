@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "P/D ratio comparison (illustrative)",
+  "seed": 73,
+  "config": { "servingMode": "disaggregated", "gpuCount": 8, "numBlocks": 128, "maxBatchSize": 8, "prefillGpuCount": 4 },
+  "traffic": {
+    "enabled": true, "arrival": "poisson", "rate": 3,
+    "prompt": { "kind": "fixed", "value": 512 },
+    "output": { "kind": "fixed", "value": 64 },
+    "prefix": "chat", "prefixReuseProbability": 0.6
+  },
+  "maxSimMs": 30000,
+  "sweep": [{ "path": "config.prefillGpuCount", "values": [2, 4, 6] }],
+  "notes": "Same workload across 2P+6D / 4P+4D / 6P+2D. Watch which queue grows; no topology is assumed to win."
+}

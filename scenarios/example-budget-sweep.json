@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "token-budget sweep (illustrative)",
+  "seed": 73,
+  "config": { "gpuCount": 2, "numBlocks": 128, "maxBatchSize": 8, "schedulerPolicy": "fcfs" },
+  "traffic": {
+    "enabled": true, "arrival": "poisson", "rate": 3,
+    "prompt": { "kind": "uniform", "min": 128, "max": 512 },
+    "output": { "kind": "uniform", "min": 32, "max": 96 },
+    "prefix": "chat", "prefixReuseProbability": 0.8
+  },
+  "maxSimMs": 20000,
+  "sweep": [{ "path": "config.maxNumBatchedTokens", "values": [32, 64, 128] }],
+  "notes": "Same workload, three token budgets. All numbers are simulator outputs, not hardware benchmarks."
+}

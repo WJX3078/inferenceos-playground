@@ -198,3 +198,56 @@ main { min-width: 0; background: #111416; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+
+/* ---- InferenceOS Lab v2 additions ---- */
+.dot.preempted { background: #ed8790; }
+.dot.transfer_wait, .dot.transferring { background: #e4b666; }
+.dot.decode_wait { background: #b0cee5; }
+.phase-label.preempted { color: #ed8790; }
+.phase-label.transfer_wait, .phase-label.transferring { color: var(--amber); }
+.phase-label.decode_wait { color: #b0cee5; }
+.swatch.free { background: #1b2329; border-color: #303b43; }
+.swatch.preempted { background: #6e3a40; border-color: #ed8790; }
+.swatch.transfer_wait, .swatch.transferring { background: #71603b; border-color: #e4b666; }
+.swatch.decode_wait { background: #3d556b; border-color: #b0cee5; }
+.timeline-span.preempted { background: #c76b74; }
+.timeline-span.transfer_wait, .timeline-span.transferring { background: #d9a944; opacity: .75; }
+.timeline-span.decode_wait { background: #7ba3c7; opacity: .7; }
+.metric-sub { margin-top: 7px; font: 8px monospace; color: #71818b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.submetrics { display: flex; flex-wrap: wrap; gap: 6px 22px; padding: 10px 22px; background: #14181b; border-bottom: 1px solid var(--line); color: #7d8f9a; font: 9px monospace; }
+.submetrics b { color: #b9c8d2; font-weight: 500; }
+.scenario-banner { display: flex; align-items: baseline; gap: 10px; margin: 0 22px 16px; padding: 9px 12px; background: #66d7b00d; border: 1px solid #66d7b024; border-radius: 4px; }
+.scenario-banner b { font-size: 10px; color: #8fd7b7; white-space: nowrap; }
+.scenario-banner span { font-size: 10px; color: #93a5a4; line-height: 1.55; }
+.budget-section { min-width: 0; }
+.budget-rows { display: grid; gap: 6px; margin-bottom: 8px; }
+.budget-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) 74px; align-items: center; gap: 8px; font-size: 8px; color: #7d8f9a; }
+.budget-track { display: flex; height: 10px; background: #1b2227; border: 1px solid #2c3840; overflow: hidden; }
+.budget-seg { display: block; height: 100%; transition: width .2s; }
+.budget-seg.decode { background: #4daf88; }
+.budget-seg.prefill { background: #629bcb; }
+.stacked-telemetry { min-width: 0; display: grid; gap: 18px; }
+.transfer-detail { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; padding: 8px; background: #252a1e26; background: #242421; border: 1px solid #5b5335; border-radius: 3px; font: 8px monospace; color: #c2b184; }
+.transfer-detail span { color: #9d946f; }
+.transfer-detail b { color: #e4d5a4; font-weight: 500; }
+.compare-section { min-width: 0; border: 1px solid var(--line); border-radius: 5px; background: #15191c; padding: 16px 18px; }
+.compare-section .section-heading { flex-wrap: wrap; }
+.compare-section .section-heading > div { display: flex; gap: 8px; }
+.compare-table { border-collapse: collapse; width: 100%; white-space: nowrap; text-align: left; }
+.compare-table th { color: #6e818e; font: 8px monospace; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.compare-table th .subtle { display: block; margin-top: 4px; font-size: 7px; max-width: 220px; white-space: normal; }
+.compare-table td { padding: 7px 10px; border-bottom: 1px solid #20282d; font: 10px monospace; color: #a6b7c2; }
+.compare-table td:first-child { color: #8b9ea9; font-size: 9px; }
+.compare-table .best-cell { color: #7fdcae; }
+.export-row { display: flex; gap: 8px; margin-top: 14px; }
+.export-row .secondary { flex: 1; height: 30px; font-size: 10px; }
+.import-button { position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; gap: 7px; }
+.import-button input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+.restart-hint { margin-left: auto; font: 7px monospace; color: #71604a; border: 1px solid #71604a; border-radius: 2px; padding: 1px 4px; }
+.event-type.preempt, .event-type.cancel { color: #d48b91; }
+.event-type.chunk, .event-type.budget { color: #7fb3d8; }
+.event-type.transfer-queue, .event-type.transfer-start, .event-type.transfer-complete { color: #d9b45c; }
+.event-type.restore-queue, .event-type.restore-complete { color: #b392c6; }
+.event-type.resume { color: #8fd7b7; }
+.event-type.watermark { color: #c3a467; }
+.runtime-grid.single { grid-template-columns: 1fr; }

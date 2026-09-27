@@ -14,6 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "experiment": "node scripts/experiment.ts",
     "check": "npm test && npm run build && npm run test:e2e"
   },
   "dependencies": {

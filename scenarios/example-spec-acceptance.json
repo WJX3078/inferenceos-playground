@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "Speculative decoding acceptance comparison (illustrative)",
+  "seed": 91,
+  "config": { "gpuCount": 2, "speculativeDecoding": true, "specDraftLength": 8, "specCost": 1.65, "specAcceptance": "high" },
+  "traffic": {
+    "enabled": true, "arrival": "constant", "rate": 2,
+    "prompt": { "kind": "fixed", "value": 128 },
+    "output": { "kind": "fixed", "value": 128 },
+    "prefix": "code"
+  },
+  "maxSimMs": 30000,
+  "sweep": [{ "path": "config.specAcceptance", "values": ["low", "medium", "high"] }],
+  "notes": "Low acceptance with a 1.65x step cost can be slower than plain decoding — a simulator result, not a hardware claim."
+}

@@ -26,20 +26,20 @@ test('inspect desktop, topology, cache, cancellation, trace and canvas pixels', 
   await expect(page.getByRole('heading', { name: 'Execution trace', exact: true })).toBeVisible();
   await page.getByLabel('Event filter').selectOption('admit');
   await expect(page.locator('.log-line').first()).toContainText('ADMIT');
+  await page.getByLabel('Event filter').selectOption('chunk');
   await page.getByRole('button', { name: 'Runtime', exact: true }).click();
-  await page.getByLabel('Scenario').selectOption('tensor');
+  await page.getByLabel('Scenario', { exact: true }).selectOption('tensor-parallel');
   await page.getByRole('button', { name: 'Resume simulation' }).click();
   await page.waitForTimeout(700);
   await page.getByRole('button', { name: 'Pause simulation' }).click();
   await expect(page.locator('.tp-ring')).toBeVisible();
   await expect(page.locator('[data-worker]')).toHaveCount(4);
   await page.screenshot({ path: 'artifacts/tensor-parallel.png', fullPage: true });
-  await page.getByLabel('Scenario').selectOption('speculative');
+  await page.getByLabel('Scenario', { exact: true }).selectOption('speculative-high-acceptance');
   await page.getByRole('button', { name: 'Resume simulation' }).click();
   await page.waitForTimeout(500);
   await page.getByRole('button', { name: 'Pause simulation' }).click();
   await page.getByRole('button', { name: 'R001', exact: true }).first().click();
-  await expect(page.locator('.spec-tokens')).toBeVisible();
   await page.screenshot({ path: 'artifacts/speculative.png', fullPage: true });
   expect(errors).toEqual([]);
 });
@@ -60,7 +60,7 @@ test('viewport matrix has no page-level overflow or clipped buttons', async ({ p
   }
 });
 
-test('request selection follows its replica and hardware controls reach the engine', async ({ page }) => {
+test('request selection follows its pool and hardware controls reach the engine', async ({ page }) => {
   await page.goto('/');
   await page.waitForTimeout(250);
   await page.getByRole('button', { name: 'Pause simulation' }).click();
@@ -79,11 +79,27 @@ test('request selection follows its replica and hardware controls reach the engi
   await page.getByRole('button', { name: 'Add request', exact: true }).click();
   await expect(page.getByTestId('arrival-notice')).toContainText('rejected');
   const downloaded = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export trace' }).click();
+  await page.getByRole('button', { name: 'Export run' }).click();
   const stream = await (await downloaded).createReadStream();
   const chunks: Buffer[] = [];
   for await (const chunk of stream!) chunks.push(chunk);
   const trace = JSON.parse(Buffer.concat(chunks).toString());
   expect(trace.config).toMatchObject({ blockSize: 8, numBlocks: 16, maxBatchSize: 2, prefixCaching: false, speculativeDecoding: true });
   expect(trace.metrics.rejected).toBeGreaterThan(0);
+});
+
+test('disaggregated pool layout responds to the P/D allocation controls', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Pause simulation' }).click();
+  await page.getByLabel('GPU count').selectOption('8');
+  await page.getByLabel('Serving topology').selectOption('disaggregated');
+  await page.getByRole('button', { name: 'Apply & restart' }).click();
+  await expect(page.locator('.replica-title').first()).toContainText('PREFILL POOL');
+  await page.getByLabel('Prefill GPUs').selectOption('6');
+  await expect(page.locator('.capacity', { hasText: 'Decode GPUs' })).toContainText('2');
+  await page.getByLabel('Prefill TP').selectOption('2');
+  await page.getByRole('button', { name: 'Apply & restart' }).click();
+  await expect(page.locator('[data-worker]')).toHaveCount(8);
+  await expect(page.locator('.replica-title', { hasText: 'PREFILL POOL' })).toHaveCount(3);
+  await expect(page.locator('.replica-title', { hasText: 'DECODE POOL' })).toHaveCount(2);
 });

@@ -1,27 +1,34 @@
 import { describe, expect, it } from 'vitest';
 import { SimulationEngine } from './engine';
 import { createScenario, SCENARIOS } from './scenarios';
+import type { Request } from './types';
 
 const input = { promptTokens: 64, outputTokens: 12, prefix: 'none' };
-const drain = (e: SimulationEngine, limit = 10000) => {
-  for (let i = 0; i < limit && e.requests.some(r => r.status === 'waiting' || r.status === 'prefill' || r.status === 'decode'); i++) e.step();
+const IN_FLIGHT = ['waiting', 'prefill', 'decode', 'preempted', 'transfer_wait', 'transferring', 'decode_wait'];
+const inFlight = (e: SimulationEngine) => e.requests.some(r => IN_FLIGHT.includes(r.status));
+const drain = (e: SimulationEngine, limit = 30000) => {
+  for (let i = 0; i < limit && (inFlight(e) || (e.workload?.pending ?? 0) > 0); i++) e.step();
   expect(e.requests.every(r => ['completed', 'rejected', 'cancelled'].includes(r.status))).toBe(true);
 };
+const quiet = (e: SimulationEngine) => { e.setTraffic(null); };
 
 describe('SimulationEngine', () => {
   it('makes the pressure scenario demonstrate LRU eviction without oversized seed requests', () => {
-    const e = createScenario('pressure');
+    const e = createScenario('kv-pressure');
+    quiet(e);
     drain(e);
     expect(e.metrics.rejected).toBe(0);
     expect(e.metrics.evictions).toBeGreaterThan(0);
   });
 
-  it('drains all seven predefined scenarios without leaking pages', () => {
+  it('drains every predefined scenario without leaking pages', () => {
     for (const s of SCENARIOS) {
       const e = createScenario(s.id);
+      if (!s.requests?.length) quiet(e);
       drain(e);
       e.assertInvariants();
-      expect(e.metrics.completed).toBe(s.count);
+      const expected = s.requests?.length || s.count;
+      expect(e.metrics.completed, s.id).toBe(expected);
     }
   });
 
@@ -80,7 +87,7 @@ describe('SimulationEngine', () => {
     e.enqueue({ promptTokens: 128, outputTokens: 1, prefix: 'chat' });
     drain(e);
     for (let i = 0; i < 8; i++) e.enqueue({ promptTokens: 128, outputTokens: 96, prefix: 'none' });
-    for (let i = 0; i < 2000; i++) { e.step(); e.assertInvariants(); }
+    for (let i = 0; i < 4000; i++) { e.step(); e.assertInvariants(); }
     expect(e.metrics.completed).toBe(9);
     expect(e.metrics.evictions).toBeGreaterThan(0);
   });
@@ -160,7 +167,7 @@ describe('SimulationEngine', () => {
     drain(e);
     const a = e.enqueue({ promptTokens: 256, outputTokens: 30, prefix: 'chat' });
     const b = e.enqueue({ promptTokens: 256, outputTokens: 30, prefix: 'chat' });
-    e.step(12);
+    e.step(30);
     expect(a.blockTable.slice(0, 8)).toEqual(b.blockTable.slice(0, 8));
     expect(a.blockTable[8]).not.toBe(b.blockTable[8]);
     expect(e.pools[0].blocks[a.blockTable[0]].owners).toHaveLength(2);
@@ -190,5 +197,77 @@ describe('SimulationEngine', () => {
         expect(e.requests.every(r => r.status === 'completed')).toBe(true);
         expect(e.metrics.outputTokens).toBe(e.requests.reduce((n, r) => n + r.outputTokens, 0));
       }
+  });
+});
+
+describe('Token budget & chunked prefill', () => {
+  it('never schedules more tokens than the per-iteration budget', () => {
+    const e = new SimulationEngine({ gpuCount: 1, maxNumBatchedTokens: 32, maxBatchSize: 8 });
+    e.burst(8, { promptTokens: 512, outputTokens: 32, prefix: 'none' });
+    for (let i = 0; i < 600; i++) {
+      e.step();
+      e.assertInvariants();
+      const usage = e.lastBudget[0];
+      expect(usage.decode + usage.prefill).toBeLessThanOrEqual(usage.total);
+      expect(usage.decode + usage.prefill + usage.unused).toBe(usage.total);
+    }
+  });
+
+  it('processes long prompts across multiple chunked iterations without overflow', () => {
+    const e = new SimulationEngine({ gpuCount: 1, prefillChunkSize: 64, numBlocks: 512 });
+    const r = e.enqueue({ promptTokens: 640, outputTokens: 8, prefix: 'none' });
+    let chunkEvents = 0;
+    while (r.status === 'waiting' || r.status === 'prefill') {
+      e.step();
+      chunkEvents = e.events.filter(x => x.type === 'chunk').length;
+      expect(r.processed).toBeLessThanOrEqual(r.promptTokens);
+      e.assertInvariants();
+    }
+    expect(chunkEvents).toBeGreaterThan(1);
+    const prefillSpan = r.spans.find(s => s.phase === 'prefill');
+    expect(prefillSpan).toBeDefined();
+    expect(prefillSpan!.end - prefillSpan!.start).toBeGreaterThanOrEqual(20 * 10); // many iterations
+    expect(r.processed).toBe(640);
+    drain(e);
+    expect(r.generated).toBe(8);
+  });
+
+  it('decode priority keeps decodes moving while a long prefill consumes the budget', () => {
+    const run = (decodePriority: boolean) => {
+      const e = new SimulationEngine({
+        gpuCount: 1, maxBatchSize: 8, maxNumBatchedTokens: 32, prefillChunkSize: 0, decodePriority, numBlocks: 256,
+      });
+      const decoder = e.enqueue({ promptTokens: 32, outputTokens: 200, prefix: 'none' });
+      // Let the decoder reach decode phase first.
+      while (decoder.status !== 'decode') e.step();
+      const stall = e.enqueue({ promptTokens: 2048, outputTokens: 8, prefix: 'none' });
+      const before = decoder.generated;
+      for (let i = 0; i < 40; i++) e.step();
+      return { decoder, stall, progressed: decoder.generated - before, budget: e.lastBudget[0] };
+    };
+    const priority = run(true);
+    expect(priority.progressed).toBeGreaterThan(0);
+    expect(priority.stall.processed).toBeLessThan(2048);
+    const noPriority = run(false);
+    expect(noPriority.progressed).toBe(0);
+    expect(noPriority.budget.prefill).toBe(32);
+  });
+
+  it('counts scheduler iterations and reports token budget utilization', () => {
+    const e = new SimulationEngine();
+    e.burst(4, { promptTokens: 256, outputTokens: 32, prefix: 'none' });
+    e.step(100);
+    expect(e.metrics.schedulerIterations).toBe(100);
+    expect(e.metrics.tokenBudgetUtilization).toBeGreaterThan(0);
+    expect(e.metrics.tokenBudgetUtilization).toBeLessThanOrEqual(100);
+  });
+});
+
+describe('Request shape helpers', () => {
+  it('never generates beyond the requested output length', () => {
+    const e = new SimulationEngine({ gpuCount: 2, maxBatchSize: 8 });
+    const rs: Request[] = e.burst(10, { promptTokens: 128, outputTokens: 17, prefix: 'chat' });
+    drain(e);
+    for (const r of rs) expect(r.generated).toBe(r.outputTokens);
   });
 });
