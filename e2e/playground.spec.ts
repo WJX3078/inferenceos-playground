@@ -35,10 +35,10 @@ for (const scenario of ['static-batching', 'continuous-batching', 'prefix-heavy'
   test(`scenario ${scenario} runs and renders a live execution trace`, async ({ page }) => {
     await page.goto('/');
     await page.getByLabel('Scenario', { exact: true }).selectOption(scenario);
-    await page.waitForTimeout(700);
-    await expect(page.getByTestId('sim-time')).not.toHaveText('0.00 s');
-    await expect(page.locator('[data-worker]').first()).toBeVisible();
-    await expect(page.getByTestId('timeline').locator('.timeline-span').first()).toBeVisible();
+    // Cold vite transforms on CI can delay the first ticks; auto-retry generously.
+    await expect(page.getByTestId('sim-time')).not.toHaveText('0.00 s', { timeout: 30000 });
+    await expect(page.locator('[data-worker]').first()).toBeVisible({ timeout: 30000 });
+    await expect(page.getByTestId('timeline').locator('.timeline-span').first()).toBeVisible({ timeout: 30000 });
     await expect(page.getByTestId('scenario-banner')).toContainText(/\w/);
   });
 }
@@ -46,11 +46,10 @@ for (const scenario of ['static-batching', 'continuous-batching', 'prefix-heavy'
 test('disaggregated topology shows P/D pools and KV transfer activity', async ({ page }) => {
   await page.goto('/');
   await page.getByLabel('Scenario', { exact: true }).selectOption('disaggregated-balanced');
-  await page.waitForTimeout(1200);
-  await expect(page.locator('.replica-title', { hasText: 'PREFILL POOL' })).toHaveCount(4);
-  await expect(page.locator('.replica-title', { hasText: 'DECODE POOL' })).toHaveCount(4);
+  await expect(page.locator('.replica-title', { hasText: 'PREFILL POOL' })).toHaveCount(4, { timeout: 30000 });
+  await expect(page.locator('.replica-title', { hasText: 'DECODE POOL' })).toHaveCount(4, { timeout: 30000 });
   await expect(page.getByTestId('timeline').locator('.timeline-span.transfer_wait, .timeline-span.transferring, .timeline-span.decode_wait').first())
-    .toBeVisible({ timeout: 10000 });
+    .toBeVisible({ timeout: 30000 });
   await page.getByRole('button', { name: 'Pause simulation' }).click();
   await expect(page.locator('.submetrics')).toContainText('transfers');
 });
@@ -65,18 +64,16 @@ test('scheduler policy, chunked prefill and preemption switches work live', asyn
   await page.getByLabel('Preemption', { exact: true }).selectOption('recompute');
   await page.getByLabel('Prefill chunk', { exact: true }).selectOption('64');
   await page.getByRole('button', { name: 'Resume simulation' }).click();
-  await page.waitForTimeout(600);
+  await expect(page.getByTestId('sim-time')).not.toHaveText('0.00 s', { timeout: 15000 });
   await page.getByRole('button', { name: 'Pause simulation' }).click();
   await expect(page.getByTestId('budget-bar')).toBeVisible();
-  expect(await page.getByTestId('sim-time').textContent()).not.toBe('0.00 s');
 });
 
 test('SLO configuration drives goodput display and compare captures runs', async ({ page }) => {
   await page.goto('/');
   await page.getByLabel('TTFT SLO').fill('100');
-  await page.waitForTimeout(900);
-  await page.getByRole('button', { name: 'Pause simulation' }).click();
   await expect(page.locator('.metrics-strip')).toContainText('GOODPUT');
+  await page.getByRole('button', { name: 'Pause simulation' }).click();
   await page.getByRole('button', { name: 'Compare', exact: true }).click();
   await page.getByRole('button', { name: 'Capture current run' }).click();
   await expect(page.getByTestId('compare').locator('tbody tr')).toHaveCount(20);
@@ -103,10 +100,10 @@ test('KV watermark pressure surfaces the watermark wait reason', async ({ page }
   await page.getByLabel('KV watermark').fill('0.25');
   await page.getByRole('button', { name: 'Apply & restart' }).click();
   await page.getByRole('button', { name: 'Generate burst' }).click();
+  // Assert while the simulation is running (a paused clock freezes reasons).
   await page.getByRole('button', { name: 'Resume simulation' }).click();
-  await page.waitForTimeout(600);
+  await expect(page.locator('.request-table .phase-label[title*="watermark"]').first()).toBeVisible({ timeout: 30000 });
   await page.getByRole('button', { name: 'Pause simulation' }).click();
-  await expect(page.locator('.request-table .phase-label[title*="watermark"]').first()).toBeVisible();
 });
 
 test('mobile layout stays within the viewport', async ({ page }) => {

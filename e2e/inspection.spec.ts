@@ -6,7 +6,10 @@ test('inspect desktop, topology, cache, cancellation, trace and canvas pixels', 
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto('/');
   await page.getByLabel('Simulation speed').selectOption('4');
-  await page.waitForTimeout(2400);
+  // Wait for real simulation activity instead of a fixed timeout (cold CI machines).
+  await expect(page.locator('.kv-block.decode, .kv-block.prefill, .kv-block.shared').first())
+    .toBeVisible({ timeout: 30000 });
+  await page.waitForTimeout(1200);
   await page.getByRole('button', { name: 'Pause simulation' }).click();
   await page.screenshot({ path: 'artifacts/desktop.png', fullPage: true });
   const canvasPixels = await page.locator('.chart-canvas').evaluate((el: HTMLCanvasElement) => {

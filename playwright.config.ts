@@ -10,8 +10,11 @@ const executablePath = localChromium && existsSync(localChromium) ? localChromiu
 
 export default defineConfig({
   testDir: './e2e',
+  // CI: one deterministic worker with retries for infra noise; local: parallel, no retries.
+  workers: process.env.CI ? 1 : undefined,
+  retries: process.env.CI ? 2 : 0,
+  reporter: process.env.CI ? [['github'], ['list']] : 'list',
   use: { baseURL: 'http://127.0.0.1:5178', headless: true, viewport: { width: 1440, height: 1000 }, launchOptions: { executablePath } },
   webServer: { command: 'npm run dev -- --port 5178 --strictPort', url: 'http://127.0.0.1:5178', reuseExistingServer: true },
-  reporter: 'list',
 });
 
