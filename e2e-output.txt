@@ -1,0 +1,106 @@
+
+> inferenceos-playground@0.1.0 test:e2e
+> playwright test
+
+
+Running 24 tests using 1 worker
+
+  ✘   1 e2e/inspection.spec.ts:3:1 › inspect desktop, topology, cache, cancellation, trace and canvas pixels (30.1s)
+  ✘   2 e2e/inspection.spec.ts:3:1 › inspect desktop, topology, cache, cancellation, trace and canvas pixels (retry #1) (30.1s)
+
+::error file=e2e/inspection.spec.ts,title=e2e/inspection.spec.ts:3:1 › inspect desktop, topology, cache, cancellation, trace and canvas pixels::  1) e2e/inspection.spec.ts:3:1 › inspect desktop, topology, cache, cancellation, trace and canvas pixels %0A    Test timeout of 30000ms exceeded.
+::error file=e2e/inspection.spec.ts,title=e2e/inspection.spec.ts:3:1 › inspect desktop, topology, cache, cancellation, trace and canvas pixels,line=45,col=73::  1) e2e/inspection.spec.ts:3:1 › inspect desktop, topology, cache, cancellation, trace and canvas pixels %0A    Error: locator.click: Test timeout of 30000ms exceeded.%0A    Call log:%0A      - waiting for getByRole('button', { name: 'R001', exact: true }).first()%0A%0A%0A      43 |   await page.waitForTimeout(500);%0A      44 |   await page.getByRole('button', { name: 'Pause simulation' }).click();%0A    > 45 |   await page.getByRole('button', { name: 'R001', exact: true }).first().click();%0A         |                                                                         ^%0A      46 |   await page.screenshot({ path: 'artifacts/speculative.png', fullPage: true });%0A      47 |   expect(errors).toEqual([]);%0A      48 | });%0A        at /home/runner/work/inferenceos-playground/inferenceos-playground/e2e/inspection.spec.ts:45:73
+::error file=e2e/inspection.spec.ts,title=e2e/inspection.spec.ts:3:1 › inspect desktop, topology, cache, cancellation, trace and canvas pixels::  1) e2e/inspection.spec.ts:3:1 › inspect desktop, topology, cache, cancellation, trace and canvas pixels %0A%0A    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────%0A    Test timeout of 30000ms exceeded.
+::error file=e2e/inspection.spec.ts,title=e2e/inspection.spec.ts:3:1 › inspect desktop, topology, cache, cancellation, trace and canvas pixels,line=45,col=73::  1) e2e/inspection.spec.ts:3:1 › inspect desktop, topology, cache, cancellation, trace and canvas pixels %0A%0A    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────%0A    Error: locator.click: Test timeout of 30000ms exceeded.%0A    Call log:%0A      - waiting for getByRole('button', { name: 'R001', exact: true }).first()%0A%0A%0A      43 |   await page.waitForTimeout(500);%0A      44 |   await page.getByRole('button', { name: 'Pause simulation' }).click();%0A    > 45 |   await page.getByRole('button', { name: 'R001', exact: true }).first().click();%0A         |                                                                         ^%0A      46 |   await page.screenshot({ path: 'artifacts/speculative.png', fullPage: true });%0A      47 |   expect(errors).toEqual([]);%0A      48 | });%0A        at /home/runner/work/inferenceos-playground/inferenceos-playground/e2e/inspection.spec.ts:45:73
+::error file=e2e/inspection.spec.ts,title=e2e/inspection.spec.ts:3:1 › inspect desktop, topology, cache, cancellation, trace and canvas pixels::  1) e2e/inspection.spec.ts:3:1 › inspect desktop, topology, cache, cancellation, trace and canvas pixels %0A%0A    Retry #2 ───────────────────────────────────────────────────────────────────────────────────────%0A    Test timeout of 30000ms exceeded.
+::error file=e2e/inspection.spec.ts,title=e2e/inspection.spec.ts:3:1 › inspect desktop, topology, cache, cancellation, trace and canvas pixels,line=45,col=73::  1) e2e/inspection.spec.ts:3:1 › inspect desktop, topology, cache, cancellation, trace and canvas pixels %0A%0A    Retry #2 ───────────────────────────────────────────────────────────────────────────────────────%0A    Error: locator.click: Test timeout of 30000ms exceeded.%0A    Call log:%0A      - waiting for getByRole('button', { name: 'R001', exact: true }).first()%0A%0A%0A      43 |   await page.waitForTimeout(500);%0A      44 |   await page.getByRole('button', { name: 'Pause simulation' }).click();%0A    > 45 |   await page.getByRole('button', { name: 'R001', exact: true }).first().click();%0A         |                                                                         ^%0A      46 |   await page.screenshot({ path: 'artifacts/speculative.png', fullPage: true });%0A      47 |   expect(errors).toEqual([]);%0A      48 | });%0A        at /home/runner/work/inferenceos-playground/inferenceos-playground/e2e/inspection.spec.ts:45:73
+  ✘   3 e2e/inspection.spec.ts:3:1 › inspect desktop, topology, cache, cancellation, trace and canvas pixels (retry #2) (30.1s)
+  ✓   4 e2e/inspection.spec.ts:50:1 › viewport matrix has no page-level overflow or clipped buttons (1.1s)
+  ✓   5 e2e/inspection.spec.ts:66:1 › request selection follows its pool and hardware controls reach the engine (1.2s)
+  ✓   6 e2e/inspection.spec.ts:94:1 › disaggregated pool layout responds to the P/D allocation controls (664ms)
+  ✓   7 e2e/playground.spec.ts:3:1 › manual controls, scheduling, hardware and run export work without browser errors (1.3s)
+  ✓   8 e2e/playground.spec.ts:35:3 › scenario static-batching runs and renders a live execution trace (526ms)
+  ✓   9 e2e/playground.spec.ts:35:3 › scenario continuous-batching runs and renders a live execution trace (524ms)
+  ✓  10 e2e/playground.spec.ts:35:3 › scenario prefix-heavy runs and renders a live execution trace (522ms)
+  ✓  11 e2e/playground.spec.ts:35:3 › scenario kv-pressure runs and renders a live execution trace (507ms)
+  ✓  12 e2e/playground.spec.ts:35:3 › scenario long-context runs and renders a live execution trace (536ms)
+  ✓  13 e2e/playground.spec.ts:35:3 › scenario tensor-parallel runs and renders a live execution trace (515ms)
+  ✓  14 e2e/playground.spec.ts:35:3 › scenario speculative-high-acceptance runs and renders a live execution trace (515ms)
+  ✓  15 e2e/playground.spec.ts:35:3 › scenario chunked-prefill runs and renders a live execution trace (511ms)
+  ✓  16 e2e/playground.spec.ts:35:3 › scenario long-prefill-interference runs and renders a live execution trace (527ms)
+  ✓  17 e2e/playground.spec.ts:35:3 › scenario kv-thrashing runs and renders a live execution trace (517ms)
+  ✓  18 e2e/playground.spec.ts:35:3 › scenario priority-inversion runs and renders a live execution trace (516ms)
+  ✓  19 e2e/playground.spec.ts:35:3 › scenario slo-overload runs and renders a live execution trace (513ms)
+  ✓  20 e2e/playground.spec.ts:35:3 › scenario burst-overload runs and renders a live execution trace (533ms)
+  ✓  21 e2e/playground.spec.ts:46:1 › disaggregated topology shows P/D pools and KV transfer activity (757ms)
+  ✓  22 e2e/playground.spec.ts:57:1 › scheduler policy, chunked prefill and preemption switches work live (724ms)
+  ✓  23 e2e/playground.spec.ts:72:1 › SLO configuration drives goodput display and compare captures runs (684ms)
+  ✓  24 e2e/playground.spec.ts:83:1 › scenario JSON can be exported and imported (613ms)
+  ✓  25 e2e/playground.spec.ts:96:1 › KV watermark pressure surfaces the watermark wait reason (891ms)
+  ✓  26 e2e/playground.spec.ts:109:1 › mobile layout stays within the viewport (829ms)
+::notice title=🎭 Playwright Run Summary::  1 failed%0A    e2e/inspection.spec.ts:3:1 › inspect desktop, topology, cache, cancellation, trace and canvas pixels %0A  23 passed (1.8m)
+
+
+  1) e2e/inspection.spec.ts:3:1 › inspect desktop, topology, cache, cancellation, trace and canvas pixels 
+
+    Test timeout of 30000ms exceeded.
+
+    Error: locator.click: Test timeout of 30000ms exceeded.
+    Call log:
+      - waiting for getByRole('button', { name: 'R001', exact: true }).first()
+
+
+      43 |   await page.waitForTimeout(500);
+      44 |   await page.getByRole('button', { name: 'Pause simulation' }).click();
+    > 45 |   await page.getByRole('button', { name: 'R001', exact: true }).first().click();
+         |                                                                         ^
+      46 |   await page.screenshot({ path: 'artifacts/speculative.png', fullPage: true });
+      47 |   expect(errors).toEqual([]);
+      48 | });
+        at /home/runner/work/inferenceos-playground/inferenceos-playground/e2e/inspection.spec.ts:45:73
+
+    Error Context: test-results/inspection-inspect-desktop-a5ea9-ion-trace-and-canvas-pixels/error-context.md
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Test timeout of 30000ms exceeded.
+
+    Error: locator.click: Test timeout of 30000ms exceeded.
+    Call log:
+      - waiting for getByRole('button', { name: 'R001', exact: true }).first()
+
+
+      43 |   await page.waitForTimeout(500);
+      44 |   await page.getByRole('button', { name: 'Pause simulation' }).click();
+    > 45 |   await page.getByRole('button', { name: 'R001', exact: true }).first().click();
+         |                                                                         ^
+      46 |   await page.screenshot({ path: 'artifacts/speculative.png', fullPage: true });
+      47 |   expect(errors).toEqual([]);
+      48 | });
+        at /home/runner/work/inferenceos-playground/inferenceos-playground/e2e/inspection.spec.ts:45:73
+
+    Error Context: test-results/inspection-inspect-desktop-a5ea9-ion-trace-and-canvas-pixels-retry1/error-context.md
+
+    Retry #2 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Test timeout of 30000ms exceeded.
+
+    Error: locator.click: Test timeout of 30000ms exceeded.
+    Call log:
+      - waiting for getByRole('button', { name: 'R001', exact: true }).first()
+
+
+      43 |   await page.waitForTimeout(500);
+      44 |   await page.getByRole('button', { name: 'Pause simulation' }).click();
+    > 45 |   await page.getByRole('button', { name: 'R001', exact: true }).first().click();
+         |                                                                         ^
+      46 |   await page.screenshot({ path: 'artifacts/speculative.png', fullPage: true });
+      47 |   expect(errors).toEqual([]);
+      48 | });
+        at /home/runner/work/inferenceos-playground/inferenceos-playground/e2e/inspection.spec.ts:45:73
+
+    Error Context: test-results/inspection-inspect-desktop-a5ea9-ion-trace-and-canvas-pixels-retry2/error-context.md
+
+  1 failed
+    e2e/inspection.spec.ts:3:1 › inspect desktop, topology, cache, cancellation, trace and canvas pixels 
+  23 passed (1.8m)
