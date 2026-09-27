@@ -38,11 +38,16 @@ test('inspect desktop, topology, cache, cancellation, trace and canvas pixels', 
   await expect(page.locator('.tp-ring')).toBeVisible();
   await expect(page.locator('[data-worker]')).toHaveCount(4);
   await page.screenshot({ path: 'artifacts/tensor-parallel.png', fullPage: true });
+  // Back to 1x: at 4x a fixed wall-clock wait races the request lifecycle
+  // (R001 may already be completed and absent from the live queue).
+  await page.getByLabel('Simulation speed').selectOption('1');
   await page.getByLabel('Scenario', { exact: true }).selectOption('speculative-high-acceptance');
   await page.getByRole('button', { name: 'Resume simulation' }).click();
-  await page.waitForTimeout(500);
+  // The History filter lists every request regardless of lifecycle state.
+  await page.locator('.queue-section .segmented button', { hasText: 'History' }).click();
+  await page.locator('.request-table').getByRole('button', { name: 'R001', exact: true }).click();
+  await expect(page.locator('.spec-tokens')).toBeVisible({ timeout: 30000 });
   await page.getByRole('button', { name: 'Pause simulation' }).click();
-  await page.getByRole('button', { name: 'R001', exact: true }).first().click();
   await page.screenshot({ path: 'artifacts/speculative.png', fullPage: true });
   expect(errors).toEqual([]);
 });
